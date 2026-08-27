@@ -199,7 +199,7 @@ status = clock.read_reg(Si5395Reg.LOL_HOLD_STATUS)  # Clear, self-documenting
 # Access clock - Method 2: Convenience properties
 is_locked = clock.is_locked()          # Check PLL lock status
 mode = clock.mode                      # Get current mode
-clock.mode = 0x01                      # Set to locked mode
+health = clock.health                  # Structured live clock status
 device_id = clock.get_device_id()      # Should return 0x5395
 
 # Access clock - Method 3: Status checks
@@ -210,11 +210,11 @@ if clock.is_in_holdover():
 
 # Access firefly
 ff = reg.get_firefly('F1_5')
-dev_id = ff.identifier
+part_id = ff.part_id
 
 # Access LGA80D
 lga = reg.get_lga80d('F1VCCINT1')
-voltage = lga.read_voltage()
+voltage = lga.voltage
 ```
 
 ## Compliance with Issue #210

@@ -34,9 +34,10 @@
     "0x00": {
       "description": "Vendor ID and capabilities",
       "MAX_TEMP": {"addr": "0x84", "size": 1, "access": "RO", "description": "Max recommended case temp (°C, default 70°C)"},
-      "VENDOR_NAME": {"addr": "0x98", "size": 10, "access": "RO", "description": "Vendor name ('Samtec Inc')"},
+      "VENDOR_NAME": {"addr": "0x94", "size": 16, "access": "RO", "description": "Vendor name (ASCII)"},
       "VENDOR_PN": {"addr": "0xA8", "size": 16, "access": "RO", "description": "Vendor/part identification string"},
-      "VENDOR_SN": {"addr": "0xBD", "size": 10, "access": "RO", "description": "Serial number"}
+      "VENDOR_REV": {"addr": "0xB8", "size": 2, "access": "RO", "description": "Vendor revision number (ASCII)"},
+      "SERIAL_NUMBER": {"addr": null, "size": 0, "access": "NA", "description": "No verified serial-number field for this variant"}
     },
     "0x01": {
       "description": "Alarm thresholds",

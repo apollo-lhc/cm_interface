@@ -174,7 +174,7 @@ def example_lga80d_monitoring():
         
         # Read supply voltage
         try:
-            voltage = lga.read_voltage()
+            voltage = lga.voltage
             print(f"  Output Voltage: {voltage:.2f} V")
         except Exception as e:
             print(f"  ⚠ Could not read voltage: {e}")
@@ -218,8 +218,8 @@ def example_system_status_report():
     print("\n--- Firefly Summary ---")
     for loc, device in reg.fireflies.items():
         dev_type = type(device).__name__
-        dev_id = device.identifier.hex() if hasattr(device, 'identifier') else "N/A"
-        print(f"  {loc} ({dev_type}): ID={dev_id}")
+        part_id = device.part_id
+        print(f"  {loc} ({dev_type}): part_id={part_id}")
     
     # LGA80D summary
     print("\n--- LGA80D Summary ---")
@@ -235,7 +235,7 @@ def example_system_status_report():
 
 def example_firefly_identification():
     """
-    Identify firefly device types by reading their ID registers.
+    Identify firefly device types and read their part-number fields.
     """
     print("=" * 70)
     print("Example 7: Firefly Device Identification")
@@ -250,32 +250,32 @@ def example_firefly_identification():
     xcvr_12ch = []
     
     for loc, device in reg.fireflies.items():
-        dev_id = device.identifier.hex() if hasattr(device, 'identifier') else "unknown"
+        part_id = device.part_id
         
         if isinstance(device, Firefly4):
-            xcvr_4ch.append((loc, dev_id))
+            xcvr_4ch.append((loc, part_id))
         elif isinstance(device, Firefly12):
-            xcvr_12ch.append((loc, dev_id))
+            xcvr_12ch.append((loc, part_id))
         elif isinstance(device, FireflyTx):
-            tx_only.append((loc, dev_id))
+            tx_only.append((loc, part_id))
         elif isinstance(device, FireflyRx):
-            rx_only.append((loc, dev_id))
+            rx_only.append((loc, part_id))
     
     print(f"\n4-Channel XCVRs: {len(xcvr_4ch)}")
-    for loc, dev_id in xcvr_4ch:
-        print(f"  {loc}: {dev_id}")
+    for loc, part_id in xcvr_4ch:
+        print(f"  {loc}: {part_id}")
     
     print(f"\n12-Channel XCVRs: {len(xcvr_12ch)}")
-    for loc, dev_id in xcvr_12ch:
-        print(f"  {loc}: {dev_id}")
+    for loc, part_id in xcvr_12ch:
+        print(f"  {loc}: {part_id}")
     
     print(f"\nTx-Only: {len(tx_only)}")
-    for loc, dev_id in tx_only:
-        print(f"  {loc}: {dev_id}")
+    for loc, part_id in tx_only:
+        print(f"  {loc}: {part_id}")
     
     print(f"\nRx-Only: {len(rx_only) }")
-    for loc, dev_id in rx_only:
-        print(f"  {loc}: {dev_id}")
+    for loc, part_id in rx_only:
+        print(f"  {loc}: {part_id}")
     
     print("\n" + "=" * 70)
 

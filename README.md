@@ -48,7 +48,7 @@ reg = Registry(dev_path="/dev/ttyUSB0")
 # Clock example
 clk = reg.get_clock('R0A')
 print('Mode:', clk.mode)
-clk.mode = 0x02
+print('Health:', clk.health)
 
 # Firefly example – Tx/Rx pair (generic mapping)
 # Note: keys follow the pattern "F{module}_{port}_Tx" / "_Rx" for split devices.
@@ -56,16 +56,17 @@ clk.mode = 0x02
 
 tx = reg.get_firefly('F1_2_Tx')
 rx = reg.get_firefly('F1_2_Rx')
-print('Tx ID:', tx.identifier.hex())
-print('Rx ID:', rx.identifier.hex())
+print('Tx part:', tx.part_id)
+print('Rx part:', rx.part_id)
 
 # 4‑channel transceiver (full‑duplex)
 xf = reg.get_firefly('F1_5')
-print('Transceiver ID:', xf.identifier.hex())
+print('Transceiver part:', xf.part_id)
 
 # LGA80D example
 lga = reg.get_lga80d('F1VCCINT1')
 print('Voltage:', lga.voltage, 'V')
+print('Telemetry:', lga.read_telemetry(page=0))
 ```
 
 ## Debug Logging
@@ -98,6 +99,22 @@ hexadecimal bytes.
 
 **Note:** Debug logging is disabled by default (no performance impact). The UART bridge automatically handles page selection when accessing registers on different pages using the full 16-bit address.
 
+### UART timeout
+
+The default UART read timeout is 5 seconds. Most responses arrive in roughly
+16 ms, but a PMBus request can wait about 2.8 seconds while the MCU monitoring
+task holds the shared I2C semaphore for a complete power-supply sweep. The
+5-second default provides margin for that expected contention. Callers can
+override it with `Registry(timeout=...)` when appropriate.
+
+### LGA80D telemetry conventions
+
+`read_switching_frequency()` and the `switching_frequency` field returned by
+`read_telemetry()` are in kHz. Unloaded outputs on the current hardware have
+historically returned negative `output_current` values. These signed readings
+are passed through unchanged; consult `read_status()` to distinguish this
+known no-load behavior from a reported supply fault.
+
 ## Standard board configurations
 The repository ships two ready‑to‑use presets that match the real hardware layouts described in `design.md`.
 
@@ -110,11 +127,11 @@ The repository ships two ready‑to‑use presets that match the real hardware l
 ```python
 # Track‑Finder configuration
 tf = Registry(setup='tf')
-print(tf.fireflies['F1_2'].identifier)   # instance of FireflyRxCern
+print(tf.fireflies['F1_2'].part_id)   # instance of FireflyRxCern
 
 # Inner‑Tracker DTC configuration
 it = Registry(setup='it_dtc')
-print(it.fireflies['F1_2_Tx'].identifier)   # instance of FireflyTxCern
+print(it.fireflies['F1_2_Tx'].part_id)   # instance of FireflyTxCern
 ```
 If `setup=None` (default) the registry falls back to the generic mapping used in the original implementation.
 
@@ -136,21 +153,22 @@ reg = Registry()
 # Clock example
 clk = reg.get_clock('R0A')
 print('Mode:', clk.mode)
-clk.mode = 0x02
+print('Health:', clk.health)
 
 # Firefly example – Tx/Rx pair
 tx = reg.get_firefly('F1_2_Tx')
 rx = reg.get_firefly('F1_2_Rx')
-print('Tx ID:', tx.identifier.hex())
-print('Rx ID:', rx.identifier.hex())
+print('Tx part:', tx.part_id)
+print('Rx part:', rx.part_id)
 
 # 4‑channel transceiver (full‑duplex)
 xf = reg.get_firefly('F1_5')
-print('Transceiver ID:', xf.identifier.hex())
+print('Transceiver part:', xf.part_id)
 
 # LGA80D example
 lga = reg.get_lga80d('F1VCCINT1')
 print('Voltage:', lga.voltage, 'V')
+print('Telemetry:', lga.read_telemetry(page=0))
 ```
 All devices expose `read_reg`/`write_reg` for raw register access and higher‑level properties where implemented (e.g., `Clock.mode`, `LGA80D.voltage`).
 

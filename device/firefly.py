@@ -3,17 +3,29 @@ from .base import Device
 
 class FireflyReg(IntEnum):
     """Common registers shared by all firefly variants."""
-    ID = 0x00
-    STATUS = 0x08
+    STATUS = 0x02
+    STATUS_SUMMARY = 0x06
+    TEMP_ALARM_LATCH = 0x11
+    VCC_ALARM_LATCH = 0x12
     TEMP_MONITOR = 0x16
+    VCC_MONITOR = 0x1A
+    ELAPSED_TIME = 0x26
+    EEPROM_REV = 0x6E
+    FIRMWARE_VER = 0x6F
     PAGE_SELECT = 0x7F
 
 
 class _FireflyBase(Device):
     """Base class handling framing common to all firefly devices."""
 
-    VENDOR_START = 0xAB
-    VENDOR_LENGTH = 16
+    VENDOR_NAME_START = 0x98
+    VENDOR_NAME_LENGTH = 10
+    PART_ID_START = 0xAB
+    PART_ID_LENGTH = 16
+    REVISION_NUMBER_START: int | None = None
+    REVISION_NUMBER_LENGTH = 0
+    SERIAL_NUMBER_START: int | None = 0xBD
+    SERIAL_NUMBER_LENGTH = 10
     
     def __init__(self, uart, address: int, location: str):
         super().__init__(uart, address)
@@ -35,13 +47,70 @@ class _FireflyBase(Device):
         return int.from_bytes(raw, "big", signed=True)
 
     @property
+    def status(self) -> int:
+        """Return the raw common module status byte."""
+        return self.read_reg(FireflyReg.STATUS)[0]
+
+    @property
+    def status_summary(self) -> int:
+        """Return the raw module fault/alarm summary byte."""
+        return self.read_reg(FireflyReg.STATUS_SUMMARY)[0]
+
+    @property
+    def supply_voltage(self) -> float:
+        """Return module supply voltage in volts."""
+        raw = self.read_reg(FireflyReg.VCC_MONITOR, size=2)
+        return int.from_bytes(raw, "big") * 100e-6
+
+    @property
+    def elapsed_time_hours(self) -> int:
+        """Return accumulated operating time in hours."""
+        raw = self.read_reg(FireflyReg.ELAPSED_TIME, size=2)
+        return int.from_bytes(raw, "big") * 2
+
+    @property
+    def firmware_version(self) -> tuple[int, int, int]:
+        """Return the module firmware version as ``(major, minor, patch)``."""
+        return tuple(self.read_reg(FireflyReg.FIRMWARE_VER, size=3))
+
+    @property
+    def eeprom_revision(self) -> int:
+        return self.read_reg(FireflyReg.EEPROM_REV)[0]
+
+    @property
+    def temperature_alarm(self) -> int:
+        return self.read_reg(FireflyReg.TEMP_ALARM_LATCH)[0]
+
+    @property
+    def supply_voltage_alarm(self) -> int:
+        return self.read_reg(FireflyReg.VCC_ALARM_LATCH)[0]
+
+    @property
+    def vendor_name(self) -> str:
+        return self.read_ascii(self.VENDOR_NAME_START, self.VENDOR_NAME_LENGTH)
+
+    @property
+    def part_id(self) -> str:
+        return self.read_ascii(self.PART_ID_START, self.PART_ID_LENGTH)
+
+    @property
+    def revision_number(self) -> str | None:
+        if self.REVISION_NUMBER_START is None:
+            return None
+        return self.read_ascii(
+            self.REVISION_NUMBER_START, self.REVISION_NUMBER_LENGTH
+        )
+
+    @property
+    def serial_number(self) -> str | None:
+        if self.SERIAL_NUMBER_START is None:
+            return None
+        return self.read_ascii(self.SERIAL_NUMBER_START, self.SERIAL_NUMBER_LENGTH)
+
+    @property
     def vendor(self) -> str:
-        """Return the ASCII vendor/part identification string."""
-        raw = bytearray()
-        for offset in range(0, self.VENDOR_LENGTH, 4):
-            size = min(4, self.VENDOR_LENGTH - offset)
-            raw.extend(self.read_reg(self.VENDOR_START + offset, size=size))
-        return raw.decode("ascii").rstrip("\x00\xff ")
+        """Compatibility alias for :attr:`part_id`."""
+        return self.part_id
 
 
 class FireflyTx(_FireflyBase):
@@ -51,7 +120,6 @@ class FireflyTx(_FireflyBase):
     """
     
     class Reg(IntEnum):
-        ID = 0x00
         STATUS = 0x06
         TX_FAULT_LATCH = 0x09
         TEMP_ALARM = 0x11
@@ -72,10 +140,6 @@ class FireflyTx(_FireflyBase):
         CDR_ENABLE = 0x4B  # Byte 75 = 0x4B
         CDR_LOL_STATUS = 0x15  # Byte 21 = 0x15
         CDR_LOL_MASK = 0x6D  # Byte 109 = 0x6D
-    
-    @property
-    def identifier(self) -> bytes:
-        return self.read_reg(self.Reg.ID)
     
     def disable_cdr(self, channels: list = None) -> None:
         """Disable CDR on specified channels (default: all 12).
@@ -115,8 +179,7 @@ class FireflyTx(_FireflyBase):
     def print_status(self) -> None:
         """Print device status."""
         status = self.read_reg(self.Reg.STATUS)[0] if hasattr(self.Reg, 'STATUS') else 0
-        dev_id = self.identifier.hex()
-        print(f"{self.location} Tx (12-ch): Status=0x{status:02X}, ID={dev_id}")
+        print(f"{self.location} Tx (12-ch): Status=0x{status:02X}, part_id={self.part_id}")
 
 
 class FireflyTxCern(_FireflyBase):
@@ -126,25 +189,14 @@ class FireflyTxCern(_FireflyBase):
     CDR control is NOT available through the standard addresses.
     """
     
-    class Reg(IntEnum):
-        ID = 0x00
-        # CERN-B uses different register addresses
-        # TX base = 0x30 instead of 0x10
-    
-    @property
-    def identifier(self) -> bytes:
-        return self.read_reg(self.Reg.ID)
-    
     def print_status(self) -> None:
-        dev_id = self.identifier.hex()
-        print(f"{self.location} Tx (CERN-B): ID={dev_id}")
+        print(f"{self.location} Tx (CERN-B): part_id={self.part_id}")
 
 
 class FireflyRx(_FireflyBase):
     """Rx-only firefly (12-channel) – standard variant."""
     
     class Reg(IntEnum):
-        ID = 0x00
         STATUS = 0x06
         RX_LOS_LATCH = 0x07
         TEMP_ALARM = 0x11
@@ -166,10 +218,6 @@ class FireflyRx(_FireflyBase):
         CDR_LOL_STATUS = 0x15  # Byte 21 = 0x15
         CDR_LOL_MASK = 0x6D  # Byte 109 = 0x6D
     
-    @property
-    def identifier(self) -> bytes:
-        return self.read_reg(self.Reg.ID)
-    
     def disable_cdr(self, channels: list = None) -> None:
         """Disable CDR on specified channels (default: all 12)."""
         if channels is None:
@@ -189,8 +237,7 @@ class FireflyRx(_FireflyBase):
     
     def print_status(self) -> None:
         status = self.read_reg(self.Reg.STATUS)[0] if hasattr(self.Reg, 'STATUS') else 0
-        dev_id = self.identifier.hex()
-        print(f"{self.location} Rx (12-ch): Status=0x{status:02X}, ID={dev_id}")
+        print(f"{self.location} Rx (12-ch): Status=0x{status:02X}, part_id={self.part_id}")
 
 
 class FireflyRxCern(_FireflyBase):
@@ -200,35 +247,20 @@ class FireflyRxCern(_FireflyBase):
     CDR control is NOT available through the standard addresses.
     """
     
-    class Reg(IntEnum):
-        ID = 0x00
-        # CERN-B uses different register addresses
-        # RX base = 0x40 instead of 0x20
-    
-    @property
-    def identifier(self) -> bytes:
-        return self.read_reg(self.Reg.ID)
-    
     def print_status(self) -> None:
-        dev_id = self.identifier.hex()
-        print(f"{self.location} Rx (CERN-B): ID={dev_id}")
+        print(f"{self.location} Rx (CERN-B): part_id={self.part_id}")
 
 
 class Firefly12(_FireflyBase):
     """12-channel firefly (both Tx & Rx)."""
     
     class Reg(IntEnum):
-        ID = 0x00
         TX = 0x10
         RX = 0x20
         # CDR registers
         CDR_TX_ENABLE = 0x4B
         CDR_RX_ENABLE = 0x4B
         CDR_LOL_STATUS = 0x15
-    
-    @property
-    def identifier(self) -> bytes:
-        return self.read_reg(self.Reg.ID)
     
     def disable_cdr(self, channels: list = None, tx: bool = True, rx: bool = True) -> None:
         """Disable CDR on specified channels.
@@ -250,8 +282,7 @@ class Firefly12(_FireflyBase):
         pass
     
     def print_status(self) -> None:
-        dev_id = self.identifier.hex()
-        print(f"{self.location} (12-ch): ID={dev_id}")
+        print(f"{self.location} (12-ch): part_id={self.part_id}")
 
 
 class Firefly4(_FireflyBase):
@@ -260,10 +291,16 @@ class Firefly4(_FireflyBase):
     Register map from ECUO 25G/28G x4 datasheet.
     """
 
-    VENDOR_START = 0xA8
+    VENDOR_NAME_START = 0x94
+    VENDOR_NAME_LENGTH = 16
+    PART_ID_START = 0xA8
+    REVISION_NUMBER_START = 0xB8
+    REVISION_NUMBER_LENGTH = 2
+    # The x4 map differs after its part-number field. Address 0xBD is not an
+    # ASCII serial number on the installed B0425040011201 devices.
+    SERIAL_NUMBER_START = None
     
     class Reg(IntEnum):
-        ID = 0x00
         STATUS = 0x08
         TX_DISABLE = 0x56  # Byte 86
         CDR_ENABLE = 0x62  # Byte 98
@@ -274,10 +311,6 @@ class Firefly4(_FireflyBase):
         TEMP_MASK = 0x67  # Byte 103
         VCC_MASK = 0x68  # Byte 104
         PAGE_SELECT = 0x7F
-    
-    @property
-    def identifier(self) -> bytes:
-        return self.read_reg(self.Reg.ID)
     
     def disable_cdr(self, channels: list = None, tx: bool = True, rx: bool = True) -> None:
         """Disable CDR on specified channels.
@@ -344,10 +377,9 @@ class Firefly4(_FireflyBase):
         except:
             pass
         
-        dev_id = self.identifier.hex()
         cdr_status = self.get_cdr_status()
         
-        print(f"{self.location} (4-ch): Status=0x{status:02X}, ID={dev_id}")
+        print(f"{self.location} (4-ch): Status=0x{status:02X}, part_id={self.part_id}")
         print(f"  CDR Enable: TX=0b{cdr_status['tx']:04b}, RX=0b{cdr_status['rx']:04b}")
 
 

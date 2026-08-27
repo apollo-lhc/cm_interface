@@ -10,7 +10,7 @@ class UART:
     call to :meth:`write` or :meth:`read` will attempt to open the port.
     """
     DEFAULT_BAUD = 115_200
-    DEFAULT_TIMEOUT = 0.5  # seconds
+    DEFAULT_TIMEOUT = 5.0  # seconds
 
     def __init__(self, dev_path: str = "/dev/ttySL4",
                  baud: int = DEFAULT_BAUD,
@@ -24,7 +24,7 @@ class UART:
         baud : int
             Baud rate (default: 115200)
         timeout : float
-            Read timeout in seconds (default: 0.5)
+            Read timeout in seconds (default: 5.0)
         debug : TextIO, optional
             Debug stream for logging UART transactions.
             Use sys.stdout, sys.stderr, or an open file object.

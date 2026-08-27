@@ -222,7 +222,7 @@ for name, clock in reg.clocks.items():
 ```python
 # Method 1: Symbolic register names (RECOMMENDED)
 status = clock.read_reg(Si5395Reg.LOL_HOLD_STATUS)
-mode = clock.read_reg(Si5395Reg.MODE)
+mode = clock.mode
 
 # Method 2: Convenience properties
 is_locked = clock.is_locked()
@@ -269,7 +269,7 @@ DESIGN_ID: ULT.1A
 
 ```python
 # Set clock to locked mode
-clock.mode = 0x01
+health = clock.health
 
 # Perform soft reset
 clock.reset(soft=True)
@@ -293,7 +293,7 @@ reg = Registry(setup='tf')
 print("LGA80D Power Supply Status:\n")
 for name, lga in reg.lga80d.items():
     try:
-        voltage = lga.read_voltage()
+        voltage = lga.voltage
         status = lga.read_status()
         print(f"{name:12s}: {voltage:6.2f} V, Status=0x{status:02X}")
     except Exception as e:
@@ -368,14 +368,14 @@ def generate_system_report(reg):
     print("\n--- Fireflies ---")
     for loc, device in reg.fireflies.items():
         dev_type = type(device).__name__
-        dev_id = device.identifier.hex()
-        print(f"  {loc:10s} ({dev_type:12s}): ID={dev_id}")
+        part_id = device.part_id
+        print(f"  {loc:10s} ({dev_type:12s}): part_id={part_id}")
     
     # LGA80D summary
     print("\n--- LGA80D DC-DC Converters ---")
     for name, lga in reg.lga80d.items():
         try:
-            voltage = lga.read_voltage()
+            voltage = lga.voltage
             print(f"  {name:12s}: {voltage:.2f} V")
         except Exception as e:
             print(f"  {name:12s}: ERROR - {e}")
@@ -458,7 +458,12 @@ example_disable_cdr_all_fireflies()
 | `disable_cdr(channels, tx, rx)` | Disable CDR on specified channels/sides |
 | `get_cdr_status(channel, tx, rx)` | Get CDR enable status |
 | `print_status()` | Print device status to console |
-| `identifier` | Property: device ID bytes |
+| `part_id` | Module part-identification string |
+| `vendor_name` | Vendor-name string |
+| `revision_number` | Vendor revision string when defined for the variant |
+| `serial_number` | Module serial-number string, or `None` when unsupported |
+| `temperature` | Module temperature in degrees Celsius |
+| `supply_voltage` | Module supply voltage in volts |
 
 ### Clock Devices
 
@@ -476,9 +481,15 @@ example_disable_cdr_all_fireflies()
 
 | Method | Description |
 |--------|-------------|
-| `read_voltage()` | Read output voltage |
+| `voltage` | Page-0 output-voltage property |
+| `read_telemetry(page)` | Read page-aware VIN, VOUT, IOUT, temperature, frequency (kHz), and status |
+| `read_status(page)` | Read detailed PMBus status registers |
 | `read_status()` | Read status register |
 | `read_current()` | Read output current |
+
+LGA80D output-current readings are intentionally not clamped. Unloaded outputs
+on the current hardware have historically reported negative values; check the
+PMBus status registers when deciding whether a reading represents a fault.
 
 ---
 

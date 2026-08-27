@@ -1,6 +1,36 @@
+from dataclasses import dataclass
 from enum import IntEnum
 from .base import Device
-from ..utils import pack_uint16, unpack_uint16
+
+
+@dataclass(frozen=True)
+class ClockHealth:
+    """Decoded live status from an Si5395."""
+
+    system_calibrating: bool
+    xa_xb_loss_of_signal: bool
+    xa_xb_error: bool
+    smbus_timeout: bool
+    loss_of_signal: tuple[bool, bool, bool, bool]
+    out_of_frequency: tuple[bool, bool, bool, bool]
+    loss_of_lock: bool
+    holdover: bool
+    pll_calibrating: bool
+    ready: bool
+
+    @property
+    def healthy(self) -> bool:
+        return not any((
+            self.system_calibrating,
+            self.xa_xb_loss_of_signal,
+            self.xa_xb_error,
+            self.smbus_timeout,
+            any(self.loss_of_signal),
+            any(self.out_of_frequency),
+            self.loss_of_lock,
+            self.holdover,
+            self.pll_calibrating,
+        )) and self.ready
 
 class Si5395Reg(IntEnum):
     """Register map for Si5395 clock generator (Page 0x00 registers).
@@ -11,13 +41,13 @@ class Si5395Reg(IntEnum):
     # Page 0x00 - Device Status, Interrupts, Resets
     PAGE = 0x0001
     DEVICE_ID = 0x0002
+    GRADE = 0x0004
     DEVICE_REV = 0x0005
     TEMP_GRADE = 0x0009
     PKG_ID = 0x000A
     I2C_ADDR = 0x000B
     
     # Status registers
-    MODE = 0x0000
     SYSINCAL = 0x000C
     LOS_STATUS = 0x000D
     LOL_HOLD_STATUS = 0x000E
@@ -60,6 +90,8 @@ class Si5395Reg(IntEnum):
     
     # Device ready status
     DEVICE_READY = 0x00FE
+
+    DESIGN_ID = 0x026B
     
     # Page 0x01 - Output Configuration
     OUTALL_DISABLE = 0x0102
@@ -125,7 +157,6 @@ class Clock(Device):
     >>> status = clock.read_reg(Si5395Reg.LOL_HOLD_STATUS)
     >>> # Using convenience properties
     >>> mode = clock.mode
-    >>> clock.mode = 0x01  # Set to locked mode
     >>> # Check specific status bits
     >>> if clock.is_locked():
     ...     print("PLL is locked")
@@ -144,18 +175,40 @@ class Clock(Device):
         return self._decode_ascii_response(raw)
 
     @property
-    def mode(self) -> int:
-        """Get current clock mode (0=free-run, 1=locked, 2=holdover)."""
-        return self.read_reg(Si5395Reg.MODE)[0]
-
-    @mode.setter
-    def mode(self, value: int) -> None:
-        self.write_reg(Si5395Reg.MODE, pack_uint16(value))
+    def mode(self) -> str:
+        """Return a mode inferred from documented live status registers."""
+        health = self.health
+        if health.system_calibrating or health.pll_calibrating:
+            return "calibrating"
+        if health.holdover:
+            return "holdover"
+        if health.loss_of_lock:
+            return "unlocked"
+        return "locked"
 
     @property
-    def status(self) -> int:
-        """Get device status register."""
-        return self.read_reg(Si5395Reg.STATUS)[0]
+    def status(self) -> ClockHealth:
+        """Compatibility name for the structured live health snapshot."""
+        return self.health
+
+    @property
+    def health(self) -> ClockHealth:
+        sysincal, los_oof, lol_hold, cal_pll = self.read_reg(
+            Si5395Reg.SYSINCAL, size=4
+        )
+        ready = self.read_reg(Si5395Reg.DEVICE_READY)[0] != 0
+        return ClockHealth(
+            system_calibrating=bool(sysincal & (1 << 0)),
+            xa_xb_loss_of_signal=bool(sysincal & (1 << 1)),
+            xa_xb_error=bool(sysincal & (1 << 3)),
+            smbus_timeout=bool(sysincal & (1 << 5)),
+            loss_of_signal=tuple(bool(los_oof & (1 << i)) for i in range(4)),
+            out_of_frequency=tuple(bool(los_oof & (1 << (i + 4))) for i in range(4)),
+            loss_of_lock=bool(lol_hold & (1 << LolStatusBits.LOL)),
+            holdover=bool(lol_hold & (1 << LolStatusBits.HOLD)),
+            pll_calibrating=bool(cal_pll & (1 << 5)),
+            ready=ready,
+        )
 
     @property
     def lol_status(self) -> int:
@@ -174,6 +227,8 @@ class Clock(Device):
 
     def has_loss_of_signal(self, input_num: int = 0) -> bool:
         """Check if specified input has loss of signal."""
+        if not 0 <= input_num <= 3:
+            raise ValueError("input number must be between 0 and 3")
         status = self.los_status
         return bool(status & (1 << input_num))
 
@@ -187,25 +242,58 @@ class Clock(Device):
         data = self.read_reg(Si5395Reg.DEVICE_ID, size=2)
         return int.from_bytes(data, "little")
 
+    @property
+    def device_id(self) -> int:
+        return self.get_device_id()
+
     def get_device_rev(self) -> int:
         """Read device revision."""
         return self.read_reg(Si5395Reg.DEVICE_REV)[0]
 
+    @property
+    def device_revision(self) -> int:
+        return self.get_device_rev()
+
+    @property
+    def grade(self) -> int:
+        return self.read_reg(Si5395Reg.GRADE)[0]
+
+    @property
+    def temperature_grade(self) -> int:
+        return self.read_reg(Si5395Reg.TEMP_GRADE)[0]
+
+    @property
+    def package_id(self) -> int:
+        return self.read_reg(Si5395Reg.PKG_ID)[0]
+
+    @property
+    def design_id(self) -> str:
+        return self.read_ascii(Si5395Reg.DESIGN_ID, 8)
+
+    @property
+    def sticky_flags(self) -> bytes:
+        return self.read_reg(Si5395Reg.SYSINCAL_FLAG, size=4)
+
+    def clear_sticky_flags(self) -> None:
+        self.write_reg(Si5395Reg.SYSINCAL_FLAG, bytes(4))
+
     def reset(self, soft: bool = True) -> None:
         """Perform device reset."""
         if soft:
-            self.write_reg(Si5395Reg.SOFT_RESET, pack_uint16(0x01))
+            self.write_reg(Si5395Reg.SOFT_RESET, b"\x01")
         else:
             self.write_reg(Si5395Reg.POWER_DOWN, bytes([0x02]))
 
     def set_input_select(self, input_num: int) -> None:
         """Manually select input clock (0-3)."""
-        self.write_reg(Si5395Reg.IN_SEL_REGCTRL, bytes([input_num & 0x03]))
+        if not 0 <= input_num <= 3:
+            raise ValueError("input number must be between 0 and 3")
+        # Bit 0 selects register control; bits 2:1 select IN0-IN3.
+        self.update_bits(Si5395Reg.IN_SEL_REGCTRL, 0x07, 0x01 | (input_num << 1))
 
     def enable_hitless_switching(self, enable: bool = True) -> None:
         """Enable or disable hitless input switching."""
-        val = 0x04 if enable else 0x00
-        self.write_reg(Si5395Reg.HSW_EN, bytes([val]))
+        self.update_bits(Si5395Reg.HSW_EN, 0x04, 0x04 if enable else 0x00)
 
     def get_register_name(self, addr: int) -> str:
         """Get symbolic name for a register address."""

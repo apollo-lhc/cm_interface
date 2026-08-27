@@ -105,6 +105,41 @@ class Device(ABC):
             )
         return value
 
+    def read_block(self, reg: int, length: int) -> bytes:
+        """Read sequential registers using transactions of at most four bytes.
+
+        This helper is for byte-addressed devices such as Fireflies and clock
+        synthesizers. PMBus block commands have different wire semantics and
+        must use a device-specific implementation.
+        """
+        if length < 0:
+            raise ValueError("block length cannot be negative")
+        if length == 0:
+            return b""
+        if reg + length - 1 > 0xFFFF:
+            raise ValueError("block read extends beyond register 0xFFFF")
+
+        data = bytearray()
+        while len(data) < length:
+            size = min(4, length - len(data))
+            data.extend(self.read_reg(reg + len(data), size=size))
+        return bytes(data)
+
+    def read_ascii(self, reg: int, length: int) -> str:
+        """Read and trim a fixed-width ASCII field."""
+        raw = self.read_block(reg, length)
+        return raw.decode("ascii").rstrip("\x00\xff ")
+
+    def update_bits(self, reg: int, mask: int, value: int) -> int:
+        """Update selected bits of a one-byte register and return the result."""
+        if not 0 <= mask <= 0xFF or not 0 <= value <= 0xFF:
+            raise ValueError("mask and value must be one-byte integers")
+        current = self.read_reg(reg)[0]
+        updated = (current & ~mask) | (value & mask)
+        if updated != current:
+            self.write_reg(reg, bytes([updated]))
+        return updated
+
     def write_reg(self, reg: int, data: bytes) -> None:
         cmd = self._encode_command(reg, write=True, payload=data)
         self.uart.write(cmd)

@@ -17,6 +17,14 @@ The register configuration is split into:
 - **Mutable firefly presets** (`firefly_presets.py`) — Board-specific Firefly optical transceiver layouts (TF, IT-DTC, custom)
 - **Register definitions** (`registers/*.json`) — Comprehensive JSON maps for all devices with addresses, sizes, and descriptions
 
+## Known hardware telemetry behavior
+
+- LGA80D `READ_FREQUENCY` values are reported in kHz (typical readings are
+  457, 463, or 800 kHz).
+- Unloaded LGA80D outputs have historically reported negative `READ_IOUT`
+  values. Preserve the signed reading rather than clamping it to zero; use the
+  PMBus status registers to determine whether the supply is reporting a fault.
+
 ## Registry Usage
 
 ```python
