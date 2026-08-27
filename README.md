@@ -39,8 +39,11 @@ The package itself does not have external dependencies beyond `pyserial`.
 ```python
 from cm_interface.registry import Registry
 
-# Generic (no preset) – uses original mapping
+# Default device (/dev/ttySL4)
 reg = Registry()
+
+# Custom device path (e.g., for testing or different hardware)
+reg = Registry(dev_path="/dev/ttyUSB0")
 
 # Clock example
 clk = reg.get_clock('R0A')

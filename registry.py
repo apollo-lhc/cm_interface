@@ -17,18 +17,21 @@ class Registry:
     """
     _instance = None
 
-    def __new__(cls, setup: str = None, debug: Optional[TextIO] = None):
+    def __new__(cls, setup: str = None, debug: Optional[TextIO] = None, dev_path: str = "/dev/ttySL4"):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls._instance._init(setup, debug)
+            cls._instance._init(setup, debug, dev_path)
         return cls._instance
 
-    def _init(self, setup: str = None, debug: Optional[TextIO] = None):
-        self.uart = UART(debug=debug)
-        # Immutable core wiring (clocks and LGA80D)
-        from types import MappingProxyType
-        self.clocks = MappingProxyType(dict(CORE_CONFIG.clocks))
-        self.lga80d = MappingProxyType(dict(CORE_CONFIG.lga80d))
+    def _init(self, setup: str = None, debug: Optional[TextIO] = None, dev_path: str = "/dev/ttySL4"):
+        self.uart = UART(debug=debug, dev_path=dev_path)
+        # Instantiate device objects from CORE_CONFIG addresses
+        self.clocks = {}
+        self.lga80d = {}
+        for name, addr in CORE_CONFIG.clocks.items():
+            self.clocks[name] = Clock(self.uart, addr, name)
+        for name, addr in CORE_CONFIG.lga80d.items():
+            self.lga80d[name] = LGA80D(self.uart, addr, name)
         # Firefly wiring – mutable layout dict
         self.fireflies = {}
         self.firefly_layout = {}
