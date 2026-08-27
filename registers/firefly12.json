@@ -1,0 +1,71 @@
+{
+  "device": "Firefly 12-channel (ECUO-B12 / CERN-B-T12/R12)",
+  "description": "12-channel Firefly optical transceiver with per-channel monitoring and control",
+  "datasheet": "CERN_Back_End_x12_FireFly_User_Manual.pdf, Firefly Manual ECUO 25G_28G x4.pdf",
+  "channel_count": 12,
+  "uart_address_range": "0x20-0x3F (I2C/SMBus lower page)",
+  "interface": "Two-Wire Interface (TWI/I2C) with interrupt (Int_L)",
+  "lower_page_registers": {
+    "STATUS": {"addr": "0x02", "size": 1, "access": "RO", "bits": {"7-2": "Reserved", "1": "Int_L Status", "0": "Data_Not_Ready"}},
+    "STATUS_SUMMARY": {"addr": "0x06", "size": 1, "access": "RO", "bits": {"7-6": "Reserved", "5": "Fault Summary", "4-2": "Reserved", "1": "Module Alarm Summary", "0": "Init Complete"}},
+    "TX_FAULT_LATCH": {"addr": "0x09", "size": 2, "access": "RO", "description": "Latched TX fault flags (12 channels, bits 0-11)"},
+    "TEMP_ALARM_LATCH": {"addr": "0x11", "size": 1, "access": "RO", "bits": {"7": "Temp High", "6": "Temp Low", "5-0": "Reserved"}},
+    "VCC_ALARM_LATCH": {"addr": "0x12", "size": 1, "access": "RO", "bits": {"7": "VCC High", "6": "VCC Low", "5-0": "Reserved"}},
+    "TEMP_MONITOR": {"addr": "0x16", "size": 1, "access": "RO", "description": "Internal temperature, signed 8-bit (°C), accuracy ±3°C"},
+    "VCC_MONITOR": {"addr": "0x1A", "size": 2, "access": "RO", "description": "Supply voltage, 16-bit unsigned (100 µV LSB), range 0-6.55V, accuracy ±3%"},
+    "ELAPSED_TIME": {"addr": "0x26", "size": 2, "access": "RO", "description": "Operating time, 16-bit unsigned (2 hours LSB), range 0-131,070 hours"},
+    "RESET": {"addr": "0x33", "size": 1, "access": "WO", "description": "Reset all registers (write 0x01)"},
+    "TX_DISABLE": {"addr": "0x34", "size": 2, "access": "RW", "description": "Per-channel TX disable (bits 0-11 for CH0-CH11)"},
+    "TX_POLARITY_INV": {"addr": "0x3A", "size": 2, "access": "RW", "description": "Per-channel TX polarity invert"},
+    "RX_DISABLE": {"addr": "0x36", "size": 2, "access": "RW", "description": "Per-channel RX disable (bits 0-11)"},
+    "RX_OUTPUT_DISABLE": {"addr": "0x38", "size": 2, "access": "RW", "description": "Per-channel RX output disable"},
+    "RX_OUTPUT_AMP": {"addr": "0x3E", "size": 6, "access": "RW", "description": "Per-channel RX output amplitude (6 bytes for 4 channels in x4, or 12 bytes for x12)"},
+    "RX_DEEMPHASIS": {"addr": "0x44", "size": 6, "access": "RW", "description": "Per-channel RX de-emphasis"},
+    "TX_FAULT_MASK": {"addr": "0x61", "size": 2, "access": "RW", "description": "Mask TX fault interrupts (1 = mask)"},
+    "TEMP_ALARM_MASK": {"addr": "0x69", "size": 1, "access": "RW", "description": "Mask temperature alarms (default 0x01 = masked)"},
+    "VCC_ALARM_MASK": {"addr": "0x6A", "size": 1, "access": "RW", "description": "Mask VCC alarms (default 0x01 = masked)"},
+    "RX_LOS_LATCH": {"addr": "0x07", "size": 2, "access": "RO", "description": "Latched RX Loss of Signal (12 channels)"},
+    "RX_LOS_MASK": {"addr": "0x5F", "size": 2, "access": "RW", "description": "Mask RX LOS interrupts"},
+    "FIRMWARE_VER": {"addr": "0x6F", "size": 3, "access": "RO", "description": "Firmware version (major.minor.patch)"},
+    "EEPROM_REV": {"addr": "0x6E", "size": 1, "access": "RO", "description": "EEPROM revision"},
+    "PAGE_SELECT": {"addr": "0x7F", "size": 1, "access": "RW", "description": "Upper page selector (0x00-0x0B)"}
+  },
+  "upper_pages": {
+    "0x00": {
+      "description": "Vendor ID and capabilities (read-only)",
+      "MAX_TEMP": {"addr": "0x84", "size": 1, "access": "RO", "description": "Max recommended case temp (°C, signed, default 0x46=70°C)"},
+      "VENDOR_NAME": {"addr": "0x98", "size": 10, "access": "RO", "description": "Vendor name (ASCII, left-justified, 'Samtec Inc')"},
+      "VENDOR_PN": {"addr": "0xAB", "size": 16, "access": "RO", "description": "Vendor part number (ASCII)"},
+      "VENDOR_SN": {"addr": "0xBD", "size": 10, "access": "RO", "description": "Vendor serial number (ASCII)"}
+    },
+    "0x01": {
+      "description": "Alarm thresholds (factory preset, read-only)",
+      "TEMP_HIGH_THRESH": {"addr": "0x80", "size": 1, "access": "RO", "description": "Temp high alarm (°C, signed, default 0x50=80°C)"},
+      "TEMP_LOW_THRESH": {"addr": "0x82", "size": 1, "access": "RO", "description": "Temp low alarm (°C, signed, default 0x00=0°C)"},
+      "VCC_HIGH_THRESH": {"addr": "0x90", "size": 2, "access": "RO", "description": "VCC high alarm (100 µV, default 0x875A=3.465V)"},
+      "VCC_LOW_THRESH": {"addr": "0x92", "size": 2, "access": "RO", "description": "VCC low alarm (100 µV, default 0x7A76=3.135V)"}
+    },
+    "0x02": {
+      "description": "TWI address configuration",
+      "TWI_ADDRESS": {"addr": "0xFF", "size": 1, "access": "RW", "description": "Two-wire interface address (non-volatile, default 0xA0)"}
+    },
+    "0x0B": {
+      "description": "Time-at-temperature monitors (end-of-life prediction)",
+      "TEMP_BIN_BASE": {"addr": "0x80", "size": 60, "access": "RO", "description": "20 temperature bins × 3 bytes (24-bit counters, 5-min LSB)"},
+      "PEAK_TEMP": {"addr": "0xC2", "size": 1, "access": "RO", "description": "Peak recorded case temperature (°C, unsigned)"}
+    }
+  },
+  "channel_monitoring": {
+    "tx_power": "Per-channel laser bias current and output power monitoring (implementation-dependent)",
+    "rx_power": "Per-channel received optical power (dBm scaled)",
+    "los": "Loss of signal detection per channel"
+  },
+  "notes": [
+    "Memory map based on InfiniBand CXP Interface Specification Volume 2",
+    "All multi-byte values are Big Endian",
+    "Lower page 0x00-0x7F always directly accessible",
+    "Upper pages selected via PAGE_SELECT byte at 0x7F",
+    "Temperature range: 0°C to 70°C (commercial), -40°C to +85°C (extended)",
+    "Int_L pin asserts on unmasked faults/alarms"
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "device": "Samtec Firefly (Standard ECUO/ECUE)",
+  "description": "FireFly Micro Flyover System - Optical/Copper Transceiver",
+  "datasheet": "Firefly Manual ECUO 25G_28G x4 Revision_1.0.pdf",
+  "uart_address_range": "0x20-0x3F (I2C/SMBus)",
+  "interface": "Two-Wire Interface (TWI/I2C)",
+  "memory_map_structure": {
+    "lower_page": "0x00-0x7F (always directly addressable)",
+    "upper_pages": "0x00-0x0B (selected via page select byte at 0x7F)"
+  },
+  "registers": {
+    "STATUS": {"addr": "0x02", "size": 1, "access": "RO", "description": "Module status (Int_L, Data_Not_Ready)"},
+    "STATUS_SUMMARY": {"addr": "0x06", "size": 1, "access": "RO", "description": "Fault/Module/Init status summary"},
+    "TEMP_INT": {"addr": "0x16", "size": 1, "access": "RO", "description": "Internal temperature (°C, signed)"},
+    "VCC_MONITOR": {"addr": "0x1A", "size": 2, "access": "RO", "description": "Supply voltage (100 µV LSB, range 0-6.55V)"},
+    "ELAPSED_TIME": {"addr": "0x26", "size": 2, "access": "RO", "description": "Operating time (2 hours LSB, >14 years range)"},
+    "RESET": {"addr": "0x33", "size": 1, "access": "WO", "description": "Reset register (0x01 resets all)"},
+    "TX_DISABLE_MASK": {"addr": "0x34", "size": 2, "access": "RW", "description": "Per-channel TX disable (12 bits)"},
+    "RX_DISABLE_MASK": {"addr": "0x36", "size": 2, "access": "RW", "description": "Per-channel RX disable (12 bits)"},
+    "TX_POLARITY_INV": {"addr": "0x3A", "size": 2, "access": "RW", "description": "TX polarity invert mask"},
+    "RX_POLARITY_INV": {"addr": "0x3C", "size": 2, "access": "RW", "description": "RX polarity invert mask"},
+    "FAULT_MASK": {"addr": "0x61", "size": 2, "access": "RW", "description": "Fault interrupt mask (per-channel)"},
+    "TEMP_ALARM_MASK": {"addr": "0x69", "size": 1, "access": "RW", "description": "Temperature alarm mask"},
+    "VCC_ALARM_MASK": {"addr": "0x6A", "size": 1, "access": "RW", "description": "VCC alarm mask"},
+    "PAGE_SELECT": {"addr": "0x7F", "size": 1, "access": "RW", "description": "Upper page selector (0x00-0x0B)"},
+    "VENDOR_NAME": {"addr": "0x98", "size": 10, "access": "RO", "description": "Vendor name (ASCII, 'Samtec Inc')"},
+    "VENDOR_PN": {"addr": "0xAB", "size": 16, "access": "RO", "description": "Vendor part number (ASCII)"},
+    "VENDOR_SN": {"addr": "0xBD", "size": 10, "access": "RO", "description": "Vendor serial number (ASCII)"},
+    "FIRMWARE_VER": {"addr": "0x6F", "size": 3, "access": "RO", "description": "Firmware version"},
+    "EEPROM_REV": {"addr": "0x6E", "size": 1, "access": "RO", "description": "EEPROM revision"}
+  },
+  "upper_page_00": {
+    "description": "Read-only vendor and capability information",
+    "MAX_TEMP": {"addr": "0x84", "size": 1, "access": "RO", "description": "Max recommended operating temp (°C, default 0x46=77°C)"},
+    "VENDOR_NAME": {"addr": "0x98", "size": 10, "access": "RO", "description": "Vendor name"},
+    "VENDOR_PN": {"addr": "0xAB", "size": 16, "access": "RO", "description": "Part number"},
+    "VENDOR_SN": {"addr": "0xBD", "size": 10, "access": "RO", "description": "Serial number"}
+  },
+  "upper_page_01": {
+    "description": "Alarm thresholds (read-only, factory preset)",
+    "TEMP_HIGH_ALARM": {"addr": "0x80", "size": 1, "access": "RO", "description": "Temperature high alarm threshold (°C, default 0x50=80°C)"},
+    "TEMP_LOW_ALARM": {"addr": "0x82", "size": 1, "access": "RO", "description": "Temperature low alarm threshold (°C, default 0x00=0°C)"},
+    "VCC_HIGH_ALARM": {"addr": "0x90", "size": 2, "access": "RO", "description": "VCC high alarm (100 µV, default 0x875A=3.465V)"},
+    "VCC_low_ALARM": {"addr": "0x92", "size": 2, "access": "RO", "description": "VCC low alarm (100 µV, default0x7A76=3.135V)"}
+  },
+  "upper_page_0B": {
+    "description": "Time-at-temperature monitors for end-of-life prediction",
+    "TEMP_BINS": {"addr": "0x80-0xBB", "size": 60, "access": "RO", "description": "Time spent in 5°C temperature bins (24-bit counters, 5-min LSB)"},
+    "PEAK_TEMP": {"addr": "0xC2", "size": 1, "access": "RO", "description": "Peak recorded temperature (°C)"}
+  },
+  "notes": [
+    "Memory map derived from InfiniBand CXP Interface specification",
+    "TWI address default is 0xA0 (can be changed via upper page 0x02)",
+    "All multi-byte values are Big Endian",
+    "Lower page (0x00-0x7F) always accessible; upper pages selected via 0x7F"
+  ]
+}

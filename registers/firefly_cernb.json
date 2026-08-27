@@ -1,0 +1,76 @@
+{
+  "device": "Firefly CERN-B Variant (CERN-B-T12/R12/Y12)",
+  "description": "CERN-specific Firefly 12-channel optical transceiver for Versatile Link Plus system",
+  "datasheet": "CERN_Back_End_x12_FireFly_User_Manual.pdf",
+  "variant": "cern-b",
+  "channel_count": 12,
+  "uart_address_range": "0x20-0x3F (I2C/SMBus)",
+  "interface": "Two-Wire Interface (TWI/I2C) with Int_L interrupt",
+  "key_differences_from_standard": [
+    "TX base address shifted to 0x30 (from 0x10)",
+    "RX base address shifted to 0x40 (from 0x20)",
+    "Additional CERN-specific control registers at 0x60-0x7F",
+    "Modified alarm thresholds for HL-LHC environment"
+  ],
+  "lower_page_registers": {
+    "STATUS": {"addr": "0x02", "size": 1, "access": "RO", "description": "Module status (Int_L, Data_Not_Ready)"},
+    "STATUS_SUMMARY": {"addr": "0x06", "size": 1, "access": "RO", "description": "Fault summary flags"},
+    "TX_FAULT_LATCH": {"addr": "0x09", "size": 2, "access": "RO", "description": "Latched TX fault (12 channels)"},
+    "RX_LOS_LATCH": {"addr": "0x07", "size": 2, "access": "RO", "description": "Latched RX LOS (12 channels)"},
+    "TEMP_MONITOR": {"addr": "0x16", "size": 1, "access": "RO", "description": "Internal temperature (°C, signed)"},
+    "VCC_MONITOR": {"addr": "0x1A", "size": 2, "access": "RO", "description": "Supply voltage (100 µV LSB)"},
+    "ELAPSED_TIME": {"addr": "0x26", "size": 2, "access": "RO", "description": "Operating time (2 hours LSB)"},
+    "RESET": {"addr": "0x33", "size": 1, "access": "WO", "description": "Software reset (0x01)"},
+    "TX_DISABLE": {"addr": "0x34", "size": 2, "access": "RW", "description": "TX channel disable mask (12 bits)"},
+    "TX_CFG_BASE": {"addr": "0x30", "size": 48, "access": "RW", "description": "CERN-B TX configuration base (per-channel: enable, bias, modulation)"},
+    "TX_BIAS": {"addr": "0x30", "size": 12, "access": "RW", "description": "Per-channel TX laser bias current (mA scaled)"},
+    "TX_POWER": {"addr": "0x3C", "size": 12, "access": "RW", "description": "Per-channel TX output power control"},
+    "TX_POLARITY": {"addr": "0x48", "size": 2, "access": "RW", "description": "TX polarity invert mask"},
+    "RX_CFG_BASE": {"addr": "0x40", "size": 48, "access": "RW", "description": "CERN-B RX configuration base (per-channel: gain, equalization)"},
+    "RX_DISABLE": {"addr": "0x42", "size": 2, "access": "RW", "description": "RX channel disable mask"},
+    "RX_OUTPUT_AMP": {"addr": "0x44", "size": 6, "access": "RW", "description": "Per-channel RX output amplitude"},
+    "RX_DEEMPHASIS": {"addr": "0x4A", "size": 6, "access": "RW", "description": "Per-channel RX de-emphasis"},
+    "RX_LOS_MASK": {"addr": "0x5F", "size": 2, "access": "RW", "description": "RX LOS interrupt mask"},
+    "TX_FAULT_MASK": {"addr": "0x61", "size": 2, "access": "RW", "description": "TX fault interrupt mask"},
+    "TEMP_ALARM_MASK": {"addr": "0x69", "size": 1, "access": "RW", "description": "Temperature alarm mask"},
+    "VCC_ALARM_MASK": {"addr": "0x6A", "size": 1, "access": "RW", "description": "VCC alarm mask"},
+    "CERN_CTRL": {"addr": "0x60", "size": 4, "access": "RW", "description": "CERN-B specific control register (radiation hardening, test modes)"},
+    "CERN_STATUS": {"addr": "0x64", "size": 2, "access": "RO", "description": "CERN-B specific status (SEU counters, watchdog)"},
+    "FIRMWARE_VER": {"addr": "0x6F", "size": 3, "access": "RO", "description": "Firmware version"},
+    "EEPROM_REV": {"addr": "0x6E", "size": 1, "access": "RO", "description": "EEPROM revision"},
+    "PAGE_SELECT": {"addr": "0x7F", "size": 1, "access": "RW", "description": "Upper page selector"}
+  },
+  "upper_pages": {
+    "0x00": {
+      "VENDOR_NAME": {"addr": "0x98", "size": 10, "access": "RO", "description": "Vendor name ('Samtec Inc' or 'CERN')"},
+      "VENDOR_PN": {"addr": "0xAB", "size": 16, "access": "RO", "description": "Part number (CERN-B-XXX-XXX-X-X-X-X format)"},
+      "VENDOR_SN": {"addr": "0xBD", "size": 10, "access": "RO", "description": "Serial number"},
+      "MAX_TEMP": {"addr": "0x84", "size": 1, "access": "RO", "description": "Max case temperature (°C)"}
+    },
+    "0x01": {
+      "TEMP_HIGH_THRESH": {"addr": "0x80", "size": 1, "access": "RO", "description": "Temperature high alarm (°C)"},
+      "TEMP_LOW_THRESH": {"addr": "0x82", "size": 1, "access": "RO", "description": "Temperature low alarm (°C)"},
+      "VCC_HIGH_THRESH": {"addr": "0x90", "size": 2, "access": "RO", "description": "VCC high alarm (V)"},
+      "VCC_LOW_THRESH": {"addr": "0x92", "size": 2, "access": "RO", "description": "VCC low alarm (V)"}
+    },
+    "0x0B": {
+      "TEMP_BINS": {"addr": "0x80", "size": 60, "access": "RO", "description": "Time-at-temperature monitoring"},
+      "PEAK_TEMP": {"addr": "0xC2", "size": 1, "access": "RO", "description": "Peak temperature (°C)"}
+    }
+  },
+  "cern_specific_features": {
+    "radiation_tolerance": "Enhanced SEU immunity for HL-LHC environment",
+    "watchdog": "Internal watchdog timer for autonomous recovery",
+    "seu_counters": "Single-event upset event counters for reliability monitoring",
+    "test_modes": "CERN-specific test and diagnostic modes",
+    "operating_temp": "Extended temperature range for underground operation"
+  },
+  "notes": [
+    "CERN-B variant uses different register base addresses (TX: 0x30, RX: 0x40)",
+    "Compatible with Versatile Link Plus optical system",
+    "Memory map derived from CERN-B-T12/R12 specifications",
+    "All multi-byte values are Big Endian",
+    "Int_L pin asserts on unmasked faults",
+    "Requires CERN-specific firmware for full functionality"
+  ]
+}

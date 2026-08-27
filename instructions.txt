@@ -1,0 +1,25 @@
+command: "r" = read, "w" = write
+device type: "DC" = DC-DC converter, "FF" = Firefly, "CL" = clock devices
+device number: hex number representing the device number (one byte)
+page: hex number which is the page address (one byte)
+address: hex number that is the register address within the selected page (one byte)
+only for write commands: data to write: one or several hex numbers that are the data bytes to be written.
+line terminator: "\n" symbol (code 0x0A)
+If the command was a read command, the MCU responds with the data read out from the device by transmitting a string in the following format:
+
+start marker: "d" + space symbol
+one or several hex numbers that are the data bytes read from the device, separated by spaces
+line terminator: "\n" symbol (code 0x0A)
+If the command was a write command, the MCU responds with the following:
+
+confirmation token "c"
+line terminator: "\n" symbol (code 0x0A)
+If MCU encountered an error, it responds with the following:
+
+error marker: "e" + space symbol
+optionally, but strongly suggested: a string with error description. Example: "invalid address"
+line terminator: "\n" symbol (code 0x0A)
+
+
+
+https://github.com/apollo-lhc/cm_mcu/issues/210
