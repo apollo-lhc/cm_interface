@@ -1,6 +1,6 @@
 from enum import IntEnum
 from .base import Device
-from ..utils import pack_uint16, unpack_uint16, crc8
+from ..utils import pack_uint16, unpack_uint16
 
 class LGA80DReg(IntEnum):
     """Registers for the LGA80D module (partial)."""
@@ -25,21 +25,16 @@ class LGA80D(Device):
         self.supply_name = supply_name
 
     def _encode_command(self, reg: int, write: bool, payload: bytes = b"") -> bytes:
-        cmd = bytes([
-            self.address,
-            0x01 if write else 0x00,
-            (reg >> 8) & 0xFF,
-            reg & 0xFF,
-            len(payload)
-        ]) + payload
-        return cmd + crc8(cmd)
+        return self._encode_ascii_command(
+            "DC", self.address - 0x40, reg, write, payload
+        )
 
     def _decode_response(self, raw: bytes) -> bytes:
-        return raw[:-1]
+        return self._decode_ascii_response(raw)
 
     @property
     def voltage(self) -> float:
-        raw = self.read_reg(LGA80DReg.VALUE)
+        raw = self.read_reg(LGA80DReg.VALUE, size=2)
         # LSB assumed to be 0.01 V – adjust per datasheet.
         return unpack_uint16(raw) * 0.01
 

@@ -1,6 +1,6 @@
 from enum import IntEnum
 from .base import Device
-from ..utils import pack_uint16, unpack_uint16, crc8
+from ..utils import pack_uint16, unpack_uint16
 
 class Si5395Reg(IntEnum):
     """Register map for Si5395 clock generator (Page 0x00 registers).
@@ -135,22 +135,17 @@ class Clock(Device):
         self.name = name
 
     def _encode_command(self, reg: int, write: bool, payload: bytes = b"") -> bytes:
-        cmd = bytes([
-            self.address,
-            0x01 if write else 0x00,
-            (reg >> 8) & 0xFF,
-            reg & 0xFF,
-            len(payload)
-        ]) + payload
-        return cmd + crc8(cmd)
+        return self._encode_ascii_command(
+            "CL", self.address - 0x10, reg, write, payload
+        )
 
     def _decode_response(self, raw: bytes) -> bytes:
-        return raw[:-1]
+        return self._decode_ascii_response(raw)
 
     @property
     def mode(self) -> int:
         """Get current clock mode (0=free-run, 1=locked, 2=holdover)."""
-        return unpack_uint16(self.read_reg(Si5395Reg.MODE))
+        return self.read_reg(Si5395Reg.MODE)[0]
 
     @mode.setter
     def mode(self, value: int) -> None:
@@ -159,12 +154,12 @@ class Clock(Device):
     @property
     def status(self) -> int:
         """Get device status register."""
-        return unpack_uint16(self.read_reg(Si5395Reg.STATUS))
+        return self.read_reg(Si5395Reg.STATUS)[0]
 
     @property
     def lol_status(self) -> int:
         """Get Loss of Lock status register."""
-        return unpack_uint16(self.read_reg(Si5395Reg.LOL_HOLD_STATUS))
+        return self.read_reg(Si5395Reg.LOL_HOLD_STATUS)[0]
 
     @property
     def los_status(self) -> int:
@@ -188,8 +183,8 @@ class Clock(Device):
 
     def get_device_id(self) -> int:
         """Read device ID register (should be 0x5395)."""
-        data = self.read_reg(Si5395Reg.DEVICE_ID)
-        return unpack_uint16(data)
+        data = self.read_reg(Si5395Reg.DEVICE_ID, size=2)
+        return int.from_bytes(data, "little")
 
     def get_device_rev(self) -> int:
         """Read device revision."""

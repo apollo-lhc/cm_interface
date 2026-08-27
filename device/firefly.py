@@ -1,6 +1,5 @@
 from enum import IntEnum
 from .base import Device
-from ..utils import crc8
 
 class FireflyReg(IntEnum):
     """Common registers shared by all firefly variants."""
@@ -17,17 +16,12 @@ class _FireflyBase(Device):
         self.location = location
     
     def _encode_command(self, reg: int, write: bool, payload: bytes = b"") -> bytes:
-        cmd = bytes([
-            self.address,
-            0x01 if write else 0x00,
-            (reg >> 8) & 0xFF,
-            reg & 0xFF,
-            len(payload)
-        ]) + payload
-        return cmd + crc8(cmd)
+        return self._encode_ascii_command(
+            "FF", self.address - 0x20, reg, write, payload
+        )
     
     def _decode_response(self, raw: bytes) -> bytes:
-        return raw[:-1]
+        return self._decode_ascii_response(raw)
 
 
 class FireflyTx(_FireflyBase):

@@ -17,14 +17,18 @@ class Registry:
     """
     _instance = None
 
-    def __new__(cls, setup: str = None, debug: Optional[TextIO] = None, dev_path: str = "/dev/ttySL4"):
+    def __new__(cls, setup: str = None, debug: Optional[TextIO] = None,
+                dev_path: str = "/dev/ttySL4",
+                timeout: float = UART.DEFAULT_TIMEOUT):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls._instance._init(setup, debug, dev_path)
+            cls._instance._init(setup, debug, dev_path, timeout)
         return cls._instance
 
-    def _init(self, setup: str = None, debug: Optional[TextIO] = None, dev_path: str = "/dev/ttySL4"):
-        self.uart = UART(debug=debug, dev_path=dev_path)
+    def _init(self, setup: str = None, debug: Optional[TextIO] = None,
+              dev_path: str = "/dev/ttySL4",
+              timeout: float = UART.DEFAULT_TIMEOUT):
+        self.uart = UART(debug=debug, dev_path=dev_path, timeout=timeout)
         # Instantiate device objects from CORE_CONFIG addresses
         self.clocks = {}
         self.lga80d = {}
@@ -159,4 +163,3 @@ class Registry:
 
     def get_lga80d(self, supply_name: str) -> LGA80D:
         return self.lga80d[supply_name]
-

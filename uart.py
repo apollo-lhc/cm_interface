@@ -1,6 +1,5 @@
 import serial
-import sys
-from typing import Optional, TextIO, BinaryIO
+from typing import Optional, TextIO
 from .errors import UARTError
 
 class UART:
@@ -46,10 +45,19 @@ class UART:
     def _log(self, direction: str, data: bytes, size: int = None) -> None:
         """Log UART transaction to debug stream."""
         if self.debug is not None:
-            if direction == "TX":
-                self.debug.write(f"UART TX ({len(data)}): {data.hex(' ')}\n")
-            elif direction == "RX":
-                self.debug.write(f"UART RX ({len(data)}): {data.hex(' ')}\n")
+            try:
+                # Keep line terminators visible instead of letting them break the
+                # debug record onto a second line.
+                rendered = (
+                    data.decode("ascii")
+                    .encode("unicode_escape")
+                    .decode("ascii")
+                )
+            except UnicodeDecodeError:
+                rendered = f"[hex] {data.hex(' ')}"
+
+            if direction in ("TX", "RX"):
+                self.debug.write(f"UART {direction} ({len(data)}): {rendered}\n")
             if hasattr(self.debug, 'flush'):
                 self.debug.flush()
 
@@ -69,6 +77,17 @@ class UART:
         if len(chunk) != size:
             raise UARTError(f"Read timeout: expected {size} bytes, got {len(chunk)}")
         return chunk
+
+    def readline(self) -> bytes:
+        """Read one newline-terminated response from the MCU."""
+        if self._ser is None:
+            self._ser = serial.Serial(self.dev_path, baudrate=self.baud,
+                                      timeout=self.timeout)
+        line = self._ser.read_until(b"\n")
+        self._log("RX", line)
+        if not line.endswith(b"\n"):
+            raise UARTError("Read timeout waiting for newline-terminated response")
+        return line
 
     def close(self) -> None:
         if self._ser is not None:

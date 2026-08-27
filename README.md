@@ -88,9 +88,13 @@ with open('uart_debug.log', 'w') as f:
 
 Debug output format:
 ```
-UART TX (7): 10 00 02 6b 00 79  # Command sent (read register 0x026B)
-UART RX (4): 10 02 6b 55 c7     # Response received (data: 0x55)
+UART TX (11): r DC 1 0 1\n
+UART RX (5): d 7A\n
 ```
+
+The terminating newline is shown as `\n` so that each transaction remains on
+one debug-output line. Non-ASCII traffic is labeled `[hex]` and displayed as
+hexadecimal bytes.
 
 **Note:** Debug logging is disabled by default (no performance impact). The UART bridge automatically handles page selection when accessing registers on different pages using the full 16-bit address.
 

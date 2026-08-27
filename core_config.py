@@ -23,12 +23,15 @@ CORE_CONFIG: Final[CoreConfig] = CoreConfig(
         "R1C": 0x14,
     },
     lga80d={
-        "F1VCCINT1": 0x40,
-        "F1VCCINT2": 0x41,
-        "F2VCCINT1": 0x42,
-        "F2VCCINT2": 0x43,
-        "F1AVTT/CC": 0x44,
-        "F2AVTT/CC": 0x45,
-        "3V3/1V8":    0x46,
+        # Keep these synthetic addresses in the same order as the MCU's
+        # pm_addrs_dcdc[] table.  The ASCII protocol transmits address - 0x40
+        # as the zero-based device number.
+        "3V3/1V8":    0x40,
+        "F1VCCINT1": 0x41,
+        "F1VCCINT2": 0x42,
+        "F2VCCINT1": 0x43,
+        "F2VCCINT2": 0x44,
+        "F1AVTT/CC": 0x45,
+        "F2AVTT/CC": 0x46,
     },
 )
