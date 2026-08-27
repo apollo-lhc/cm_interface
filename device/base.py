@@ -14,7 +14,8 @@ class Device(ABC):
         self.address = address
 
     @abstractmethod
-    def _encode_command(self, reg: int, write: bool, payload: bytes = b"") -> bytes:
+    def _encode_command(self, reg: int, write: bool, payload: bytes = b"",
+                        read_size: int = 1) -> bytes:
         ...
 
     @abstractmethod
@@ -23,7 +24,8 @@ class Device(ABC):
 
     @staticmethod
     def _encode_ascii_command(device_type: str, device_number: int, reg: int,
-                              write: bool, payload: bytes = b"") -> bytes:
+                              write: bool, payload: bytes = b"",
+                              read_size: int = 1) -> bytes:
         """Encode the line protocol implemented by MCU ``ProgComTask``."""
         if not 0 <= device_number <= 0xFF:
             raise ValueError(f"device number out of range: {device_number}")
@@ -31,6 +33,8 @@ class Device(ABC):
             raise ValueError(f"register out of range: {reg}")
         if len(payload) > 4:
             raise ValueError("MCU protocol accepts at most four data bytes")
+        if not 1 <= read_size <= 4:
+            raise ValueError("MCU protocol read size must be between 1 and 4 bytes")
 
         fields = [
             "w" if write else "r",
@@ -39,12 +43,15 @@ class Device(ABC):
             f"{(reg >> 8) & 0xFF:X}",
             f"{reg & 0xFF:X}",
         ]
-        fields.extend(f"{value:02X}" for value in payload)
+        if write:
+            fields.extend(f"{value:02X}" for value in payload)
+        else:
+            fields.append(f"{read_size:X}")
         return (" ".join(fields) + "\n").encode("ascii")
 
     @staticmethod
     def _decode_ascii_response(raw: bytes) -> bytes:
-        """Decode a successful ``d XX`` read response."""
+        """Decode a successful ``d XX [XX ...]`` read response."""
         try:
             line = raw.decode("ascii").strip()
         except UnicodeDecodeError as exc:
@@ -53,15 +60,18 @@ class Device(ABC):
         if line.startswith("e "):
             raise ValueError(f"MCU error: {line[2:]}")
         fields = line.split()
-        if len(fields) != 2 or fields[0] != "d":
+        if len(fields) < 2 or len(fields) > 5 or fields[0] != "d":
             raise ValueError(f"invalid MCU read response: {line!r}")
-        try:
-            value = int(fields[1], 16)
-        except ValueError as exc:
-            raise ValueError(f"invalid MCU data byte: {fields[1]!r}") from exc
-        if not 0 <= value <= 0xFF:
-            raise ValueError(f"MCU data byte out of range: {fields[1]!r}")
-        return bytes([value])
+        values = []
+        for field in fields[1:]:
+            try:
+                value = int(field, 16)
+            except ValueError as exc:
+                raise ValueError(f"invalid MCU data byte: {field!r}") from exc
+            if not 0 <= value <= 0xFF:
+                raise ValueError(f"MCU data byte out of range: {field!r}")
+            values.append(value)
+        return bytes(values)
 
     @staticmethod
     def _check_ascii_write_response(raw: bytes) -> None:
@@ -76,35 +86,24 @@ class Device(ABC):
             raise ValueError(f"invalid MCU write response: {line!r}")
 
     def read_reg(self, reg: int, size: int = 1) -> bytes:
-        """Read one or more consecutive register bytes.
-
-        The MCU protocol returns exactly one byte per read command, so a
-        multi-byte register is assembled from one transaction per address.
-        Bytes are returned in ascending register-address order.
-        """
-        if size < 1:
-            raise ValueError("read size must be at least one byte")
+        """Read one to four bytes in a single device transaction."""
+        if not 1 <= size <= 4:
+            raise ValueError("read size must be between 1 and 4 bytes")
         if reg + size - 1 > 0xFFFF:
             raise ValueError("read extends beyond register 0xFFFF")
 
-        data = bytearray()
-        for offset in range(size):
-            current_reg = reg + offset
-            cmd = self._encode_command(current_reg, write=False)
-            self.uart.write(cmd)
-            resp = self.uart.readline()
-            try:
-                value = self._decode_response(resp)
-            except Exception as exc:
-                raise RegisterAccessError(
-                    f"Read register 0x{current_reg:X} failed"
-                ) from exc
-            if len(value) != 1:
-                raise RegisterAccessError(
-                    f"Read register 0x{current_reg:X} returned {len(value)} bytes; expected 1"
-                )
-            data.extend(value)
-        return bytes(data)
+        cmd = self._encode_command(reg, write=False, read_size=size)
+        self.uart.write(cmd)
+        resp = self.uart.readline()
+        try:
+            value = self._decode_response(resp)
+        except Exception as exc:
+            raise RegisterAccessError(f"Read register 0x{reg:X} failed") from exc
+        if len(value) != size:
+            raise RegisterAccessError(
+                f"Read register 0x{reg:X} returned {len(value)} bytes; expected {size}"
+            )
+        return value
 
     def write_reg(self, reg: int, data: bytes) -> None:
         cmd = self._encode_command(reg, write=True, payload=data)

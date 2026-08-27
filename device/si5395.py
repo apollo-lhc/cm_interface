@@ -134,9 +134,10 @@ class Clock(Device):
         super().__init__(uart, address)
         self.name = name
 
-    def _encode_command(self, reg: int, write: bool, payload: bytes = b"") -> bytes:
+    def _encode_command(self, reg: int, write: bool, payload: bytes = b"",
+                        read_size: int = 1) -> bytes:
         return self._encode_ascii_command(
-            "CL", self.address - 0x10, reg, write, payload
+            "CL", self.address - 0x10, reg, write, payload, read_size
         )
 
     def _decode_response(self, raw: bytes) -> bytes:

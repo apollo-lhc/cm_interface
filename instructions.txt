@@ -3,7 +3,8 @@ device type: "DC" = DC-DC converter, "FF" = Firefly, "CL" = clock devices
 device number: hex number representing the device number (one byte)
 page: hex number which is the page address (one byte)
 address: hex number that is the register address within the selected page (one byte)
-only for write commands: data to write: one or several hex numbers that are the data bytes to be written.
+for read commands: optional number of bytes to read (1-4, default 1).
+for write commands: data to write: one or several hex numbers that are the data bytes to be written.
 line terminator: "\n" symbol (code 0x0A)
 If the command was a read command, the MCU responds with the data read out from the device by transmitting a string in the following format:
 

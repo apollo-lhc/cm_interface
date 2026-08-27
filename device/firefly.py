@@ -5,23 +5,43 @@ class FireflyReg(IntEnum):
     """Common registers shared by all firefly variants."""
     ID = 0x00
     STATUS = 0x08
+    TEMP_MONITOR = 0x16
     PAGE_SELECT = 0x7F
 
 
 class _FireflyBase(Device):
     """Base class handling framing common to all firefly devices."""
+
+    VENDOR_START = 0xAB
+    VENDOR_LENGTH = 16
     
     def __init__(self, uart, address: int, location: str):
         super().__init__(uart, address)
         self.location = location
     
-    def _encode_command(self, reg: int, write: bool, payload: bytes = b"") -> bytes:
+    def _encode_command(self, reg: int, write: bool, payload: bytes = b"",
+                        read_size: int = 1) -> bytes:
         return self._encode_ascii_command(
-            "FF", self.address - 0x20, reg, write, payload
+            "FF", self.address - 0x20, reg, write, payload, read_size
         )
     
     def _decode_response(self, raw: bytes) -> bytes:
         return self._decode_ascii_response(raw)
+
+    @property
+    def temperature(self) -> int:
+        """Return the module temperature in signed integer degrees Celsius."""
+        raw = self.read_reg(FireflyReg.TEMP_MONITOR)
+        return int.from_bytes(raw, "big", signed=True)
+
+    @property
+    def vendor(self) -> str:
+        """Return the ASCII vendor/part identification string."""
+        raw = bytearray()
+        for offset in range(0, self.VENDOR_LENGTH, 4):
+            size = min(4, self.VENDOR_LENGTH - offset)
+            raw.extend(self.read_reg(self.VENDOR_START + offset, size=size))
+        return raw.decode("ascii").rstrip("\x00\xff ")
 
 
 class FireflyTx(_FireflyBase):
@@ -239,6 +259,8 @@ class Firefly4(_FireflyBase):
     
     Register map from ECUO 25G/28G x4 datasheet.
     """
+
+    VENDOR_START = 0xA8
     
     class Reg(IntEnum):
         ID = 0x00
