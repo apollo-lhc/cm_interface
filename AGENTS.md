@@ -25,6 +25,93 @@ The register configuration is split into:
   values. Preserve the signed reading rather than clamping it to zero; use the
   PMBus status registers to determine whether the supply is reporting a fault.
 
+## Planned device extensions
+
+Two device families are planned but are not yet implemented in this Python
+package or the MCU ProgCom protocol:
+
+- The MCU itself, for power-state and alarm status, ADC telemetry, reset-cause
+  and failure diagnostics, and controlled clearing of latched errors. The
+  existing Zynq push-monitoring data does not need to be duplicated blindly;
+  pull registers should concentrate on live diagnostics, detailed failure
+  cause, and state needed for debugging. Power commands must define arbitration
+  with the dedicated Zynq power-control GPIO and the existing CLI. Preserve
+  both error histories: the expressive volatile CLI log and the compact
+  persistent EEPROM log. ADC values use the same IEEE-754 binary16 bit pattern
+  as `ZynqMonTask`, transported as two little-endian ProgCom bytes. Raw ADC
+  counts are not exposed. The first release also exposes the configured
+  voltage-alarm targets in binary16, with a target-valid channel bitmap. See
+  `../MCU_DEVICE_PLAN.md`.
+
+  MCU clear operations follow the existing CLI semantics. An alarm normally
+  cuts board power, removing its triggering condition before the operator
+  clears the retained latch; power `clearfail` clears the active power-failure
+  latch immediately. ProgCom confirmation means the request was queued, and
+  completion is read from the normal latch/FSM status rather than a generic
+  command tracker. Asserting the ProgCom inhibit first is recommended but is
+  not a clear-command precondition. Clearing must retain last-failure and
+  persistent history.
+
+  The persistent EEPROM error ring is only 64 words. Expose its capacity and a
+  mutation generation, but do not add a maintained valid-entry count; Python
+  can scan the complete logical ring and ignore empty/erased sentinels.
+
+  The MCU device and its ProgCom register map target CM REV2 and REV3 only.
+  REV1 is out of scope; do not design an alternate transport or REV1-specific
+  map.
+- Two FPGA generic I2C endpoints, one on F1 and one on F2. These require a
+  stable raw transport plus data-driven, bitfile-specific Python profiles;
+  their register maps must not be compiled into the MCU. Profiles are selected
+  independently because F1 and F2 may load different designs. See
+  `../FPGA_GENERIC_INTERFACE_PLAN.md`.
+
+### FPGA generic-port hardware facts
+
+The CM REV3 schematic, sheet 38, and the current `clk_freq_fpga_cmd` establish:
+
+- the ports share MCU I2C5 and TCA9548A U46 (`0x70`) with FPGA SYSMON;
+- F2 generic is mux channel 0, F2 SYSMON channel 1, F1 generic channel 2,
+  and F1 SYSMON channel 3;
+- U46 is also the 3.3-V/1.8-V level boundary, with downstream pull-ups to
+  1.8 V;
+- generic modules are instantiated by the bitfile and are unavailable before
+  FPGA configuration, while SYSMON remains available whenever FPGA power is
+  present;
+- the example frequency-counter endpoint uses slave `0x2b`, one-byte register
+  addresses, and 32-bit words at four-byte strides, but `0x2b` is an FPGA
+  design convention rather than a board-strapped address;
+- FPGA pin B29 is strapped high on F1 and low on F2, so a common bitfile can
+  expose or validate its physical position; and
+- `/I2C_RESET_FPGAS` resets the shared mux, so generic-port error recovery
+  must not toggle it without coordinating with SYSMON monitoring.
+
+The proposed Python design has a raw `FPGA` object for F1/F2 and validated
+JSON profiles for named registers, decoding, access permissions, and optional
+high-level diagnostics. Legacy bitfiles require explicit profile selection.
+Future bitfiles should expose a small read-only descriptor containing magic,
+interface ABI, profile/design ID, register-map hash, build ID, capabilities,
+and optionally the F1/F2 position. Do not guess a bitfile by reading arbitrary
+registers.
+
+The concrete project
+`/nfs/cms/hw/wittich/25G_2/vu13p_ibert_25g` shows how complex instances fit
+this design. Its `mcu/gt_test_mcu_protocol.h` is a bitfile-owned portable wire
+protocol, and `mcu/cm_mcu/GTTestEngine.c/.h` are an optional high-level MCU
+adapter for commit-last requests and coherent result collection. A matching
+Python profile should reuse those semantics. The adapter should sit above the
+common generic-FPGA routing helper rather than duplicate mux/semaphore code.
+The design occupies `0xa0`-`0xff`, so that range cannot be reserved for a
+universal identity descriptor; select a non-conflicting common-header or
+banking convention only after comparing real designs.
+
+Generic transactions must acquire the same I2C5 semaphore as SYSMON, protect
+mux selection and cleanup, and release it on every path. Raw operations should
+normally contain one short transfer. A bitfile-specific MCU service may group
+a bounded set of transfers for commit/coherency, but must never hold I2C5
+across sleeps, FPGA test execution, or frequency-counter accumulation. A
+missing generic endpoint is an expected bitfile condition, not automatically
+a board fault.
+
 ## Registry Usage
 
 ```python

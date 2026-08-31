@@ -1,6 +1,7 @@
 # cm_interface
 
-Python framework for UART‑based management of Si5395 clocks, Samtec Firefly modules, and LGA80D devices.
+Python framework for UART‑based management of the command module's clocks,
+Firefly modules, power supplies, MCU, and FPGA generic interfaces.
 
 ## Overview
 The library abstracts the low‑level UART serial protocol and provides a typed, object‑oriented view of each hardware block. Devices are discovered and instantiated through a singleton `Registry`.
@@ -12,7 +13,7 @@ cm_interface/
 ├─ uart.py                # Lazy UART wrapper (pySerial) with debug logging
 ├─ errors.py              # Exception hierarchy
 ├─ utils.py               # CRC8, packing helpers
-├─ registry.py            # Global Registry (clocks, fireflies, LGA80D)
+├─ registry.py            # Global Registry for board devices
 ├─ core_config.py         # Fixed UART addresses for clocks and LGA80D
 ├─ firefly_presets.py     # Board-specific Firefly layouts (TF, IT-DTC)
 ├─ device/
@@ -20,7 +21,9 @@ cm_interface/
 │  ├─ base.py             # Abstract Device class
 │  ├─ si5395.py           # Clock implementation
 │  ├─ firefly.py          # Tx, Rx, and 4‑channel firefly classes
-│  └─ lga80d.py           # LGA80D DC-DC converter implementation
+│  ├─ lga80d.py           # LGA80D DC-DC converter implementation
+│  ├─ mcu.py              # Command-module MCU register interface
+│  └─ fpga.py             # Raw F1/F2 generic register interface
 └─ registers/
    ├─ si5395.json         # Si5395 register map (page-based)
    ├─ firefly12.json      # Firefly 12-channel register map
@@ -67,7 +70,21 @@ print('Transceiver part:', xf.part_id)
 lga = reg.get_lga80d('F1VCCINT1')
 print('Voltage:', lga.voltage, 'V')
 print('Telemetry:', lga.read_telemetry(page=0))
+
+# Raw FPGA generic-port access. Reads return bytes in wire order.
+f1 = reg.fpgas['F1']
+raw = f1.read_reg(0x20, size=4)
+f1.write_reg(0x00, b'\x78\x56\x34\x12')
+
+# Integer writes require an explicit width and use little-endian encoding.
+f1.write_reg(0x00, 0x12345678, size=4)
 ```
+
+The FPGA interface is deliberately unprofiled: it does not assign register
+names, units, permissions, or decoding to a bitfile-defined address. F1 and F2
+use ProgCom device numbers 0 and 1 respectively, and only byte addresses
+`0x00` through `0xff` are accepted. An I2C NACK is reported as
+`FPGAInterfaceUnavailable`, since a valid bitfile may omit the endpoint.
 
 ## Debug Logging
 

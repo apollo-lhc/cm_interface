@@ -18,3 +18,7 @@ class RegisterAccessError(CMError):
     malformed response)."""
     pass
 
+
+class FPGAInterfaceUnavailable(RegisterAccessError):
+    """Raised when an FPGA bitfile does not acknowledge its generic endpoint."""
+    pass

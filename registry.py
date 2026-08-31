@@ -2,6 +2,8 @@ from .uart import UART
 from .device.si5395 import Clock
 from .device.firefly import Firefly12, Firefly4, FireflyTx, FireflyRx, FireflyTxCern, FireflyRxCern, Firefly
 from .device.lga80d import LGA80D
+from .device.mcu import MCU
+from .device.fpga import FPGA
 from .core_config import CORE_CONFIG
 from .firefly_presets import FIREfly_PRESETS, BoardSetup
 from typing import Optional, TextIO
@@ -29,6 +31,11 @@ class Registry:
               dev_path: str = "/dev/ttySL4",
               timeout: float = UART.DEFAULT_TIMEOUT):
         self.uart = UART(debug=debug, dev_path=dev_path, timeout=timeout)
+        self.mcu = MCU(self.uart)
+        self.fpgas = {
+            "F1": FPGA(self.uart, fpga_number=0, name="F1"),
+            "F2": FPGA(self.uart, fpga_number=1, name="F2"),
+        }
         # Instantiate device objects from CORE_CONFIG addresses
         self.clocks = {}
         self.lga80d = {}
@@ -163,3 +170,11 @@ class Registry:
 
     def get_lga80d(self, supply_name: str) -> LGA80D:
         return self.lga80d[supply_name]
+
+    def get_mcu(self) -> MCU:
+        """Return the command-module MCU device."""
+        return self.mcu
+
+    def get_fpga(self, name: str) -> FPGA:
+        """Return the raw generic-interface object for ``F1`` or ``F2``."""
+        return self.fpgas[name]
