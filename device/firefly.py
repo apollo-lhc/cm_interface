@@ -1,5 +1,5 @@
 from enum import IntEnum
-from typing import Tuple
+from typing import Optional, Tuple
 from .base import Device
 
 class FireflyReg(IntEnum):
@@ -23,9 +23,9 @@ class _FireflyBase(Device):
     VENDOR_NAME_LENGTH = 10
     PART_ID_START = 0xAB
     PART_ID_LENGTH = 16
-    REVISION_NUMBER_START: int | None = None
+    REVISION_NUMBER_START: Optional[int] = None
     REVISION_NUMBER_LENGTH = 0
-    SERIAL_NUMBER_START: int | None = 0xBD
+    SERIAL_NUMBER_START: Optional[int] = 0xBD
     SERIAL_NUMBER_LENGTH = 10
     
     def __init__(self, uart, address: int, location: str):
@@ -95,7 +95,7 @@ class _FireflyBase(Device):
         return self.read_ascii(self.PART_ID_START, self.PART_ID_LENGTH)
 
     @property
-    def revision_number(self) -> str | None:
+    def revision_number(self) -> Optional[str]:
         if self.REVISION_NUMBER_START is None:
             return None
         return self.read_ascii(
@@ -103,7 +103,7 @@ class _FireflyBase(Device):
         )
 
     @property
-    def serial_number(self) -> str | None:
+    def serial_number(self) -> Optional[str]:
         if self.SERIAL_NUMBER_START is None:
             return None
         return self.read_ascii(self.SERIAL_NUMBER_START, self.SERIAL_NUMBER_LENGTH)

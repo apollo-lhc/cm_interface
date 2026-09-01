@@ -3,17 +3,95 @@
 from collections import namedtuple
 
 
+_MISSING = object()
+
+
+class _CompatField:
+    def __init__(self, default=_MISSING, default_factory=_MISSING):
+        if default is not _MISSING and default_factory is not _MISSING:
+            raise ValueError("cannot specify both default and default_factory")
+        self.default = default
+        self.default_factory = default_factory
+
+
+def _fallback_field(*, default=_MISSING, default_factory=_MISSING):
+    """Provide the ``field`` options used by the local Python 3.6 scripts."""
+    return _CompatField(default=default, default_factory=default_factory)
+
+
+def _mutable_fallback_dataclass(cls):
+    """Add basic mutable-dataclass behavior to an annotated class."""
+    annotations = getattr(cls, "__annotations__", {})
+    field_names = list(annotations)
+    defaults = {}
+    found_default = False
+
+    for name in field_names:
+        value = getattr(cls, name, _MISSING)
+        if isinstance(value, _CompatField):
+            defaults[name] = value
+            found_default = True
+            if hasattr(cls, name):
+                delattr(cls, name)
+        elif value is not _MISSING:
+            defaults[name] = _CompatField(default=value)
+            found_default = True
+        elif found_default:
+            raise TypeError("fields without defaults cannot follow defaults")
+
+    def __init__(self, *args, **kwargs):
+        if len(args) > len(field_names):
+            raise TypeError("too many positional arguments")
+        for name, value in zip(field_names, args):
+            if name in kwargs:
+                raise TypeError("multiple values for field {!r}".format(name))
+            setattr(self, name, value)
+        for name in field_names[len(args):]:
+            if name in kwargs:
+                value = kwargs.pop(name)
+            elif name in defaults:
+                configured = defaults[name]
+                if configured.default_factory is not _MISSING:
+                    value = configured.default_factory()
+                else:
+                    value = configured.default
+            else:
+                raise TypeError("missing required field {!r}".format(name))
+            setattr(self, name, value)
+        if kwargs:
+            name = next(iter(kwargs))
+            raise TypeError("unexpected field {!r}".format(name))
+
+    def __repr__(self):
+        values = ", ".join(
+            "{}={!r}".format(name, getattr(self, name)) for name in field_names
+        )
+        return "{}({})".format(type(self).__name__, values)
+
+    def __eq__(self, other):
+        if type(self) is not type(other):
+            return NotImplemented
+        return all(getattr(self, name) == getattr(other, name)
+                   for name in field_names)
+
+    cls.__init__ = __init__
+    cls.__repr__ = __repr__
+    cls.__eq__ = __eq__
+    cls.__hash__ = None
+    return cls
+
+
 def _fallback_dataclass(_cls=None, *, frozen=False):
-    """Implement the small frozen-dataclass subset used by this package.
+    """Implement the small dataclass subset used by local code.
 
-    Python 3.6 does not include :mod:`dataclasses`.  All records in this
-    package are frozen and use only annotated fields, trailing defaults,
-    properties, and ordinary methods, which a namedtuple-backed class covers.
+    Python 3.6 does not include :mod:`dataclasses`. Frozen package records use
+    a namedtuple-backed class; mutable demo records additionally support
+    annotated fields, trailing defaults, and ``default_factory``.
     """
-    if not frozen:
-        raise TypeError("the compatibility dataclass only supports frozen=True")
-
     def wrap(cls):
+        if not frozen:
+            return _mutable_fallback_dataclass(cls)
+
         annotations = getattr(cls, "__annotations__", {})
         field_names = list(annotations)
         base = namedtuple(cls.__name__, field_names)
@@ -53,9 +131,10 @@ def _fallback_dataclass(_cls=None, *, frozen=False):
 
 
 try:
-    from dataclasses import dataclass
+    from dataclasses import dataclass, field
 except ImportError:  # Python 3.6 target runtime
     dataclass = _fallback_dataclass
+    field = _fallback_field
 
 
 def spaced_hex(data):
