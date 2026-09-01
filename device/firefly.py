@@ -1,4 +1,5 @@
 from enum import IntEnum
+from typing import Tuple
 from .base import Device
 
 class FireflyReg(IntEnum):
@@ -69,7 +70,7 @@ class _FireflyBase(Device):
         return int.from_bytes(raw, "big") * 2
 
     @property
-    def firmware_version(self) -> tuple[int, int, int]:
+    def firmware_version(self) -> Tuple[int, int, int]:
         """Return the module firmware version as ``(major, minor, patch)``."""
         return tuple(self.read_reg(FireflyReg.FIRMWARE_VER, size=3))
 

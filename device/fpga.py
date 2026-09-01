@@ -1,8 +1,8 @@
 """Raw access to the generic I2C endpoint implemented by an FPGA bitfile."""
 
-from dataclasses import dataclass
 from typing import Optional, Union
 
+from ..compat import dataclass
 from .base import Device
 from ..errors import CMError, FPGAInterfaceUnavailable, RegisterAccessError
 
@@ -60,11 +60,11 @@ class FPGA(Device):
 
     @staticmethod
     def _is_unavailable(exc: BaseException) -> bool:
-        """Recognize the NACK spellings used by ProgCom/I2C error reports."""
+        """Return whether the expected FPGA I2C address was not acknowledged."""
         current: Optional[BaseException] = exc
         while current is not None:
             message = str(current).lower()
-            if any(token in message for token in ("nack", "no ack", "no_ack")):
+            if "addr_ack_error" in message:
                 return True
             current = current.__cause__
         return False

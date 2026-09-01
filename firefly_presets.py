@@ -8,7 +8,7 @@ Based on actual hardware configurations from ff_dump_names output.
 """
 
 from enum import Enum
-from typing import Mapping, Final
+from typing import Mapping
 
 class BoardSetup(Enum):
     TF = "tf"
@@ -36,7 +36,7 @@ class BoardSetup(Enum):
 #   F2_1: UNUSED
 #   12 CERN-B devices total
 
-FIREfly_PRESETS: Final[Mapping[BoardSetup, dict]] = {
+FIREfly_PRESETS: Mapping[BoardSetup, dict] = {
     BoardSetup.TF: {
         "firefly": {
             # 4-channel transceivers - ONLY F2_6 is populated

@@ -46,7 +46,6 @@
 ## Verification
 
 ```bash
-cd /Users/wittich/src
 python3 -c "
 from cm_interface.device.firefly import Firefly4Cern
 " 2>&1 | grep -q "ImportError" && echo "✓ Firefly4Cern successfully removed"

@@ -24,7 +24,7 @@ reg = Registry(setup='tf')
 
 # Access devices
 clock = reg.get_clock('R0A')
-firefly = reg.get_firefly('F1_5')
+firefly = reg.get_firefly('F2_6')  # the populated TF 4-channel slot
 lga = reg.get_lga80d('F1VCCINT1')
 ```
 
@@ -117,6 +117,7 @@ UART TX (7): 10 00 02 6b 00 79
 ```python
 from cm_interface.registry import Registry
 from cm_interface.device.firefly import Firefly4, Firefly12, FireflyTx, FireflyRx
+from cm_interface.errors import CMError
 
 reg = Registry(setup='tf')
 
@@ -129,41 +130,45 @@ for loc, device in reg.fireflies.items():
     
     print(f"Disabling CDR on {loc}...")
     
-    # Disable CDR on all channels
-    device.disable_cdr()
-    
-    # Print device status
-    device.print_status()
+    try:
+        # Disable CDR on all channels and print status
+        device.disable_cdr()
+        device.print_status()
+    except (CMError, OSError, TimeoutError, ValueError) as exc:
+        cause = exc.__cause__ or exc.__context__
+        detail = f" (caused by: {cause})" if cause else ""
+        print(f"Skipping {loc}: {exc}{detail}")
 ```
 
 **Output:**
 ```
-Disabling CDR on F1_1...
-  ✓ CDR disabled on all channels
-F1_1 (12-ch): Status=0x00, ID=00000000000000000000
-  Ch  1: CDR TX=0, RX=0
-  Ch  2: CDR TX=0, RX=0
-  ...
+Disabling CDR on F2_6...
+Skipping F2_6: Read register 0x62 failed (caused by: MCU error: Firefly not enabled)
 ```
 
 ### Example 2: Selective CDR Control
 
 ```python
-# Disable CDR only on specific channels
-f1_5 = reg.get_firefly('F1_5')
-f1_5.disable_cdr(channels=[1, 2, 3, 4])  # 4-channel device
+# F2_6 is the only populated 4-channel transceiver in the TF preset.
+f2_6 = reg.fireflies.get('F2_6')
+if f2_6 is None:
+    print("F2_6 is not configured")
+else:
+    # Disable CDR only on specific channels.
+    f2_6.disable_cdr(channels=[1, 2])
 
-# Disable CDR only on Tx side
-f1_1 = reg.get_firefly('F1_1')
-f1_1.disable_cdr(tx=True, rx=False)
+    # Disable CDR only on the Tx side of a full-duplex device.
+    f2_6.disable_cdr(tx=True, rx=False)
 
-# Check CDR status before and after
-status_before = f1_5.get_cdr_status(1)
-f1_5.disable_cdr(channels=[1])
-status_after = f1_5.get_cdr_status(1)
-
-print(f"Channel 1 CDR TX: {status_before['tx']} → {status_after['tx']}")
+    # Firefly4 reports aggregate four-bit Tx and Rx masks.
+    status = f2_6.get_cdr_status()
+    print(f"CDR masks: TX=0b{status['tx']:04b}, RX=0b{status['rx']:04b}")
 ```
+
+`F1_5`, `F1_6`, and `F2_5` are empty in the TF layout and are not registry
+keys. Use `reg.fireflies.get(location)` for optional slots. `F1_1` is Rx-only
+in TF, so it must not be passed the `tx=`/`rx=` arguments supported by
+full-duplex `Firefly4` and `Firefly12` devices.
 
 ### Example 3: CDR Control by Device Type
 
@@ -288,6 +293,8 @@ clock.enable_hitless_switching(True)
 ### Example 7: Monitor All Power Supplies
 
 ```python
+from cm_interface.errors import CMError
+
 reg = Registry(setup='tf')
 
 print("LGA80D Power Supply Status:\n")
@@ -295,22 +302,20 @@ for name, lga in reg.lga80d.items():
     try:
         voltage = lga.voltage
         status = lga.read_status()
-        print(f"{name:12s}: {voltage:6.2f} V, Status=0x{status:02X}")
-    except Exception as e:
-        print(f"{name:12s}: ERROR - {e}")
+        state = "FAULT" if status.has_faults else "OK"
+        print(
+            f"{name:12s}: {voltage:6.2f} V, {state}, "
+            f"STATUS_WORD=0x{status.word:04X}"
+        )
+    except (CMError, OSError, TimeoutError, ValueError) as exc:
+        print(f"{name:12s}: ERROR - {exc}")
 ```
 
 **Output:**
 ```
 LGA80D Power Supply Status:
 
-F1VCCINT1   :  21.78 V, Status=0x00
-F1VCCINT2   :  21.88 V, Status=0x00
-F2VCCINT1   :  20.53 V, Status=0x00
-F2VCCINT2   :  21.50 V, Status0x00
-F1AVTT/CC   :  22.38 V, Status=0x00
-F2AVTT/CC   :  20.59 V, Status=0x00
-3V3/1V8     :  21.69 V, Status=0x00
+3V3/1V8     :   1.80 V, OK, STATUS_WORD=0x0000
 ```
 
 ---
@@ -351,6 +356,9 @@ if clock.read_reg(14)[0] & 0x02:  # What does 14 mean? What does 0x02 check?
 ### Example 8: Full System Report
 
 ```python
+from cm_interface.errors import CMError
+
+
 def generate_system_report(reg):
     """Generate comprehensive status report for all devices."""
     
@@ -377,8 +385,8 @@ def generate_system_report(reg):
         try:
             voltage = lga.voltage
             print(f"  {name:12s}: {voltage:.2f} V")
-        except Exception as e:
-            print(f"  {name:12s}: ERROR - {e}")
+        except (CMError, OSError, TimeoutError, ValueError) as exc:
+            print(f"  {name:12s}: ERROR - {exc}")
     
     print("\n" + "=" * 70)
 
@@ -427,7 +435,6 @@ print(f"  Rx-only: {len(inventory['rx_only'])} - {inventory['rx_only']}")
 The complete examples are available in `examples.py`. Run them with:
 
 ```bash
-cd /Users/wittich/src/cm_interface
 python3 examples.py
 ```
 
@@ -448,7 +455,7 @@ example_disable_cdr_all_fireflies()
 |--------|-------------|
 | `Registry(setup='tf')` | Create registry with board preset ('tf', 'it_dtc', or None) |
 | `get_clock(name)` | Get Si5395 clock by name (e.g., 'R0A') |
-| `get_firefly(loc)` | Get Firefly device by location (e.g., 'F1_5') |
+| `get_firefly(loc)` | Get a configured Firefly by location; raises `KeyError` when absent |
 | `get_lga80d(name)` | Get LGA80D converter by supply name |
 
 ### Firefly Devices
@@ -483,13 +490,15 @@ example_disable_cdr_all_fireflies()
 |--------|-------------|
 | `voltage` | Page-0 output-voltage property |
 | `read_telemetry(page)` | Read page-aware VIN, VOUT, IOUT, temperature, frequency (kHz), and status |
-| `read_status(page)` | Read detailed PMBus status registers |
-| `read_status()` | Read status register |
-| `read_current()` | Read output current |
+| `read_status(page)` | Return `LGA80DStatus` with `has_faults` and raw status fields |
+| `read_output_current(page)` | Read output current |
 
 LGA80D output-current readings are intentionally not clamped. Unloaded outputs
 on the current hardware have historically reported negative values; check the
 PMBus status registers when deciding whether a reading represents a fault.
+`read_status()` is structured rather than integer-valued: format
+`status.word` with `04X`, the category fields with `02X`, and use
+`status.has_faults` for an overall `OK`/`FAULT` indication.
 
 ---
 

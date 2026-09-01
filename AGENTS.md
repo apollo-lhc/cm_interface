@@ -19,11 +19,31 @@ The register configuration is split into:
 
 ## Known hardware telemetry behavior
 
+- Target Zynq systems may run Python 3.6. Keep package source compatible with
+  Python 3.6 syntax and APIs. Import `dataclass` and space-separated hexadecimal
+  formatting through `compat.py`; do not require the external `dataclasses`
+  backport, `typing.Final`, built-in generic annotations such as `tuple[int]`,
+  or the Python 3.8 `bytes.hex(sep)` form.
+- The TF Firefly preset contains only populated devices: standard Rx-only
+  modules at `F1_1` through `F1_4`, a standard Tx-only module at `F2_3`, and a
+  standard 4-channel transceiver at `F2_6`. `F1_5`, `F1_6`, and `F2_5` are
+  empty and are intentionally absent. TF has no CERN-B variants.
+- `Registry.get_firefly()` raises `KeyError` for a location absent from the
+  selected preset. Inventory or optional-slot code should use
+  `registry.fireflies.get(location)` and report a skip when it returns `None`.
 - LGA80D `READ_FREQUENCY` values are reported in kHz (typical readings are
   457, 463, or 800 kHz).
 - Unloaded LGA80D outputs have historically reported negative `READ_IOUT`
   values. Preserve the signed reading rather than clamping it to zero; use the
   PMBus status registers to determine whether the supply is reporting a fault.
+- `LGA80D.read_status()` returns the structured `LGA80DStatus` dataclass, not
+  a scalar. Use `status.has_faults` for the summary and format `status.word` as
+  a 16-bit value; the category fields are 8-bit values.
+- Worked hardware examples should catch expected `CMError`, OS/UART timeout,
+  and setup lookup failures at an appropriate device/example boundary. Include
+  chained exception text so an MCU reason such as `Firefly not enabled` is not
+  hidden, continue independent operations, and do not broadly suppress
+  unexpected programming errors such as `TypeError`.
 
 ## Planned device extensions
 
@@ -129,7 +149,7 @@ reg = Registry(setup='tf', debug=sys.stdout)
 
 # Access devices
 clock = reg.get_clock('R0A')        # Si5395 clock generator
-firefly = reg.get_firefly('F1_5')   # Firefly transceiver
+firefly = reg.get_firefly('F2_6')   # populated TF Firefly4 transceiver
 lga80d = reg.get_lga80d('F1VCCINT1') # LGA80D DC-DC converter
 ```
 

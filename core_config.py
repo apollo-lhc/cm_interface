@@ -5,8 +5,9 @@ soldered onto the PCB.  These mappings never change at runtime – they are stor
 in a frozen dataclass so any accidental mutation raises an error.
 """
 
-from dataclasses import dataclass
-from typing import Mapping, Final
+from typing import Mapping
+
+from .compat import dataclass
 
 @dataclass(frozen=True)
 class CoreConfig:
@@ -14,7 +15,7 @@ class CoreConfig:
     lga80d: Mapping[str, int]
 
 # Global constant – the single source of truth for wiring.
-CORE_CONFIG: Final[CoreConfig] = CoreConfig(
+CORE_CONFIG: CoreConfig = CoreConfig(
     clocks={
         "R0A": 0x10,
         "R0B": 0x11,

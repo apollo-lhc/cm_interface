@@ -46,7 +46,7 @@ CDR control registers, if they exist, are at unknown addresses and require separ
 from cm_interface.registry import Registry
 from cm_interface.device.firefly import Firefly4, FireflyRxCern
 
-reg = Registry(setup='tf')
+reg = Registry(setup='it_dtc')
 
 # Standard devices - CDR control available
 f1_5 = reg.get_firefly('F1_5')  # Firefly4
@@ -56,7 +56,7 @@ if hasattr(f1_5, 'disable_cdr'):
     print(f"CDR status: TX=0b{status['tx']:04b}, RX=0b{status['rx']:04b}")
 
 # CERN-B devices - NO CDR control
-f1_2 = reg.get_firefly('F1_2')  # FireflyRxCern
+f1_2 = reg.get_firefly('F1_2_Rx')  # FireflyRxCern
 if not hasattr(f1_2, 'disable_cdr'):
     print(f"{f1_2.location} is CERN-B variant - CDR control not available")  # ✓ Correct
 ```
@@ -64,11 +64,11 @@ if not hasattr(f1_2, 'disable_cdr'):
 ## Testing
 
 ```bash
-cd /Users/wittich/src
 python3 << 'PYEOF'
 from cm_interface.registry import Registry
+from cm_interface.device.firefly import FireflyRxCern, FireflyTxCern
 
-reg = Registry(setup='tf')
+reg = Registry(setup='it_dtc')
 
 print("CDR Support Check:")
 for loc, device in reg.fireflies.items():
@@ -112,4 +112,3 @@ If CDR control is needed for CERN-B variants:
 
 - **TF Configuration**: NO CERN-B variants at all
 - **IT-DTC Configuration**: CERN-B variants are all 12-channel devices (F1_2/3/4, F2_2/3/4) with separate Tx and Rx
-

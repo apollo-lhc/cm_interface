@@ -1,5 +1,7 @@
-from dataclasses import dataclass
 from enum import IntEnum
+from typing import Tuple
+
+from ..compat import dataclass
 from .base import Device
 
 
@@ -11,8 +13,8 @@ class ClockHealth:
     xa_xb_loss_of_signal: bool
     xa_xb_error: bool
     smbus_timeout: bool
-    loss_of_signal: tuple[bool, bool, bool, bool]
-    out_of_frequency: tuple[bool, bool, bool, bool]
+    loss_of_signal: Tuple[bool, bool, bool, bool]
+    out_of_frequency: Tuple[bool, bool, bool, bool]
     loss_of_lock: bool
     holdover: bool
     pll_calibrating: bool

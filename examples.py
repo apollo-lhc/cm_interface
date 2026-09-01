@@ -9,6 +9,40 @@ Firefly optical transceivers, and LGA80D DC-DC converters.
 from cm_interface.registry import Registry
 from cm_interface.device.si5395 import Si5395Reg
 from cm_interface.device.firefly import Firefly12, Firefly4, FireflyTx, FireflyRx
+from cm_interface.errors import CMError
+
+
+EXPECTED_HARDWARE_ERRORS = (CMError, OSError, TimeoutError, ValueError)
+EXPECTED_EXAMPLE_ERRORS = EXPECTED_HARDWARE_ERRORS + (KeyError,)
+
+
+def _format_error(exc):
+    """Return a compact message that includes useful chained exceptions."""
+    messages = []
+    seen = set()
+    current = exc
+
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        message = str(current).strip() or type(current).__name__
+        if message not in messages:
+            messages.append(message)
+        current = current.__cause__ or current.__context__
+
+    return " (caused by: ".join(messages) + ")" * (len(messages) - 1)
+
+
+def _report_error(context, exc):
+    """Print an expected hardware error without producing a traceback."""
+    print(f"  ⚠ {context}: {_format_error(exc)}")
+
+
+def _get_configured_firefly(reg, location):
+    """Return a configured Firefly, or report that the slot is unavailable."""
+    device = reg.fireflies.get(location)
+    if device is None:
+        print(f"  ⚠ Skipping {location}: not present in the selected board setup")
+    return device
 
 
 # ============================================================================
@@ -25,7 +59,7 @@ def example_disable_cdr_all_fireflies():
     print("=" * 70)
     
     # Initialize registry with TF (Track Finder) configuration
-    reg = Registry(setup='tf')
+    reg = Registry(setup='tf', dev_path='/dev/ttyUSB2')
     
     # Iterate over all firefly devices
     for loc, device in reg.fireflies.items():
@@ -33,12 +67,15 @@ def example_disable_cdr_all_fireflies():
         
         # Check if device has CDR control (all firefly variants do)
         if hasattr(device, 'disable_cdr'):
-            # Disable CDR on all channels
-            device.disable_cdr()
-            print(f"  ✓ CDR disabled on all channels")
-            
-            # Print device status
-            device.print_status()
+            try:
+                # Disable CDR on all channels
+                device.disable_cdr()
+                print(f"  ✓ CDR disabled on all channels")
+
+                # Print device status
+                device.print_status()
+            except EXPECTED_HARDWARE_ERRORS as exc:
+                _report_error(f"Skipping {loc}", exc)
         else:
             print(f"  ⚠ Device {loc} does not support CDR control")
     
@@ -57,21 +94,36 @@ def example_selective_cdr_control():
     print("Example 2: Selective CDR Control")
     print("=" * 70)
     
-    reg = Registry(setup='tf')
+    reg = Registry(setup='tf', dev_path='/dev/ttyUSB2')
     
     # Disable CDR only on channels 1-4 of F1_5 (4-channel XCVR)
-    f1_5 = reg.get_firefly('F1_5')
+    f1_5 = _get_configured_firefly(reg, 'F1_5')
     if isinstance(f1_5, Firefly4):
         print(f"\nDisabling CDR on F1_5 channels 1-4...")
-        f1_5.disable_cdr(channels=[1, 2, 3, 4])
-        f1_5.print_status()
+        try:
+            f1_5.disable_cdr(channels=[1, 2, 3, 4])
+            f1_5.print_status()
+        except EXPECTED_HARDWARE_ERRORS as exc:
+            _report_error("Could not update F1_5", exc)
     
     # Disable CDR only on Tx side of F1_1
-    f1_1 = reg.get_firefly('F1_1')
-    if hasattr(f1_1, 'disable_cdr'):
-        print(f"\nDisabling CDR on F1_1 Tx only...")
-        f1_1.disable_cdr(tx=True, rx=False)
-        f1_1.print_status()
+    f1_1 = _get_configured_firefly(reg, 'F1_1')
+    if isinstance(f1_1, (Firefly4, Firefly12)):
+        print("\nDisabling CDR on F1_1 Tx only...")
+        try:
+            f1_1.disable_cdr(tx=True, rx=False)
+            f1_1.print_status()
+        except EXPECTED_HARDWARE_ERRORS as exc:
+            _report_error("Could not update F1_1", exc)
+    elif isinstance(f1_1, FireflyTx):
+        print("\nDisabling CDR on Tx-only device F1_1...")
+        try:
+            f1_1.disable_cdr()
+            f1_1.print_status()
+        except EXPECTED_HARDWARE_ERRORS as exc:
+            _report_error("Could not update F1_1", exc)
+    elif f1_1 is not None:
+        print(f"  ⚠ Skipping F1_1 Tx control: configured as {type(f1_1).__name__}")
     
     print("\n" + "=" * 70)
 
@@ -89,10 +141,10 @@ def example_cdr_status_check():
     print("Example 3: CDR Status Check")
     print("=" * 70)
     
-    reg = Registry(setup='tf')
+    reg = Registry(setup='tf', dev_path='/dev/ttyUSB2')
     
     # Check status for F2_5 (4-channel XCVR)
-    f2_5 = reg.get_firefly('F2_5')
+    f2_5 = _get_configured_firefly(reg, 'F2_5')
     if isinstance(f2_5, Firefly4):
         print(f"\nF2_5 CDR Status (BEFORE):")
         for ch in range(1, 5):
@@ -123,7 +175,7 @@ def example_clock_monitoring():
     print("Example 4: Clock Status Monitoring")
     print("=" * 70)
     
-    reg = Registry(setup='tf')
+    reg = Registry(setup='tf', dev_path='/dev/ttyUSB2')
     
     # Iterate over all clocks
     for name, clock in reg.clocks.items():
@@ -166,7 +218,7 @@ def example_lga80d_monitoring():
     print("Example 5: LGA80D Voltage Monitoring")
     print("=" * 70)
     
-    reg = Registry(setup='tf')
+    reg = Registry(setup='tf', dev_path='/dev/ttyUSB2')
     
     # Iterate over all LGA80D devices
     for name, lga in reg.lga80d.items():
@@ -176,15 +228,28 @@ def example_lga80d_monitoring():
         try:
             voltage = lga.voltage
             print(f"  Output Voltage: {voltage:.2f} V")
-        except Exception as e:
-            print(f"  ⚠ Could not read voltage: {e}")
+        except EXPECTED_HARDWARE_ERRORS as exc:
+            _report_error("Could not read voltage", exc)
         
         # Read status
         try:
             status = lga.read_status()
-            print(f"  Status: 0x{status:02X}")
-        except Exception as e:
-            print(f"  ⚠ Could not read status: {e}")
+            state = "FAULT" if status.has_faults else "OK"
+            print(f"  Status: {state}")
+            print(f"    WORD: 0x{status.word:04X}")
+            print(
+                "    VOUT: 0x{:02X}, IOUT: 0x{:02X}, INPUT: 0x{:02X}, "
+                "TEMP: 0x{:02X}, CML: 0x{:02X}, MFR: 0x{:02X}".format(
+                    status.vout,
+                    status.iout,
+                    status.input,
+                    status.temperature,
+                    status.cml,
+                    status.manufacturer,
+                )
+            )
+        except EXPECTED_HARDWARE_ERRORS as exc:
+            _report_error("Could not read status", exc)
     
     print("\n" + "=" * 70)
 
@@ -201,7 +266,7 @@ def example_system_status_report():
     print("Example 6: Complete System Status Report")
     print("=" * 70)
     
-    reg = Registry(setup='tf')
+    reg = Registry(setup='tf', dev_path='/dev/ttyUSB2')
     
     print(f"\nRegistry initialized with TF configuration")
     print(f"  Clocks: {len(reg.clocks)}")
@@ -241,7 +306,7 @@ def example_firefly_identification():
     print("Example 7: Firefly Device Identification")
     print("=" * 70)
     
-    reg = Registry(setup='tf')
+    reg = Registry(setup='tf', dev_path='/dev/ttyUSB2')
     
     # Group devices by type
     xcvr_4ch = []
@@ -292,7 +357,7 @@ def example_register_access_patterns():
     print("Example 8: Register Access Patterns")
     print("=" * 70)
     
-    reg = Registry(setup='tf')
+    reg = Registry(setup='tf', dev_path='/dev/ttyUSB2')
     clock = reg.get_clock('R0A')
     
     print("\nThree ways to read the LOL status register:")
@@ -319,21 +384,44 @@ def example_register_access_patterns():
 # Main - Run all examples
 # ============================================================================
 
-if __name__ == "____":
+def main():
+    """Run every example, continuing past expected hardware failures."""
     print("\n")
     print("╔" + "=" * 68 + "╗")
     print("║" + " " * 15 + "CM Interface Worked Examples" + " " * 25 + "║")
     print("╚" + "=" * 68 + "╝")
     print("\n")
-    
-    # Run all examples
-    example_disable_cdr_all_fireflies()
-    example_selective_cdr_control()
-    example_cdr_status_check()
-    example_clock_monitoring()
-    example_lga80d_monitoring()
-    example_system_status_report()
-    example_firefly_identification()
-    example_register_access_patterns()
-    
+
+    examples = (
+        ("Disable CDR on all Fireflies", example_disable_cdr_all_fireflies),
+        ("Selective CDR control", example_selective_cdr_control),
+        ("CDR status check", example_cdr_status_check),
+        ("Clock monitoring", example_clock_monitoring),
+        ("LGA80D monitoring", example_lga80d_monitoring),
+        ("System status report", example_system_status_report),
+        ("Firefly identification", example_firefly_identification),
+        ("Register access patterns", example_register_access_patterns),
+    )
+    failed = []
+
+    for name, example in examples:
+        try:
+            example()
+        except EXPECTED_EXAMPLE_ERRORS as exc:
+            print()
+            _report_error(f"{name} stopped", exc)
+            print("  Continuing with the next example.")
+            failed.append(name)
+
+    if failed:
+        print(f"\n⚠ Completed with {len(failed)} example(s) stopped by hardware errors:")
+        for name in failed:
+            print(f"  - {name}")
+        return 1
+
     print("\n✓ All examples completed!\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

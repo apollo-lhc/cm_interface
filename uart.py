@@ -1,5 +1,6 @@
 import serial
 from typing import Optional, TextIO
+from .compat import spaced_hex
 from .errors import UARTError
 
 class UART:
@@ -54,7 +55,7 @@ class UART:
                     .decode("ascii")
                 )
             except UnicodeDecodeError:
-                rendered = f"[hex] {data.hex(' ')}"
+                rendered = f"[hex] {spaced_hex(data)}"
 
             if direction in ("TX", "RX"):
                 self.debug.write(f"UART {direction} ({len(data)}): {rendered}\n")

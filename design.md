@@ -209,7 +209,7 @@ if clock.is_in_holdover():
     print("Clock in holdover mode")
 
 # Access firefly
-ff = reg.get_firefly('F1_5')
+ff = reg.get_firefly('F2_6')  # only populated 4-channel slot in TF
 part_id = ff.part_id
 
 # Access LGA80D

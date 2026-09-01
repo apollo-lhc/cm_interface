@@ -1,5 +1,6 @@
-from dataclasses import dataclass
 from enum import IntEnum
+
+from ..compat import dataclass
 from .base import Device
 from ..utils import decode_linear11, decode_linear16u, encode_linear16u
 
