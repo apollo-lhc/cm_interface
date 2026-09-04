@@ -46,7 +46,7 @@ target Zynq system.
 ```python
 from cm_interface.registry import Registry
 
-# TF board using the default device (/dev/ttySL4)
+# TF board using the default device (/dev/ttyUL4)
 reg = Registry(setup="tf")
 
 # Use dev_path="/dev/ttyUSB0" in the call above for a different UART.
@@ -78,13 +78,67 @@ f1.write_reg(0x00, b'\x78\x56\x34\x12')
 f1.write_reg(0x00, 0x12345678, size=4)
 ```
 
+## MCU endpoint status
+
+`Registry` always exposes the command-module MCU as `reg.mcu` and through
+`reg.get_mcu()`. The current Python client implements the read-only Phase-1
+interface for ProgCom device `MC 0`:
+
+```python
+mcu = reg.get_mcu()
+info = mcu.system_info
+print(info.git_version, info.uptime_seconds, info.capabilities, info.health)
+
+adc = mcu.read_adc()
+print(adc["VCC_12V"].value, adc["VCC_12V"].valid)
+
+targets = mcu.read_adc_targets()
+print(targets["F1_VCCINT"].value, targets["F1_VCCINT"].valid)
+```
+
+`system_info` validates the `CMCU` magic and map major version 1. ADC and
+target snapshots contain 21 little-endian IEEE-754 binary16 values and use
+generation counters to avoid returning a torn multi-transaction snapshot.
+ADC readings include validity and error bitmaps; targets include a validity
+bitmap. Snapshot entries can be selected by channel name.
+
+Power, alarm, persistent-log, and control pages are reserved in the enums but
+do not yet have Python accessors. The Python implementation is unit-tested with
+an in-memory endpoint; this repository does not contain the matching MCU
+firmware or establish what is installed on a target. The deployed firmware
+must implement the version-1 `MC 0` map. Older firmware may return
+`MCU device not implemented`. The remaining firmware and Python phases are
+tracked in `../MCU_FIRMWARE_IMPLEMENTATION_PLAN.md` and
+`../MCU_DEVICE_PLAN.md`.
+
+## FPGA endpoint status
+
+`Registry` always exposes raw generic endpoints as `reg.fpgas["F1"]` and
+`reg.fpgas["F2"]`, or through `get_fpga()`. They use ProgCom devices `FP 0`
+and `FP 1`, page 0, with byte addresses from `0x00` through `0xff`. A single
+transaction transfers one to four bytes; `read_block()` performs longer
+sequential reads as multiple transactions.
+
+Raw generic register reads and writes through this ProgCom path have been
+tested successfully on hardware. The validation covers the Phase-1 transport,
+not portable register semantics across different FPGA bitfiles.
+
 The FPGA interface is deliberately unprofiled: it does not assign register
 names, units, permissions, or decoding to a bitfile-defined address. F1 and F2
-use ProgCom device numbers 0 and 1 respectively, and only byte addresses
-`0x00` through `0xff` are accepted. An address-phase I2C NACK reported by the
-MCU as `ADDR_ACK_ERROR` becomes `FPGAInterfaceUnavailable`, since a valid
-bitfile may omit the endpoint. Data-phase NACKs and ambiguous errors remain
-ordinary `RegisterAccessError` failures.
+byte writes preserve wire order, while integer writes require an explicit
+width and use little-endian encoding. `probe(reg)` returns an
+`FPGAProbeResult`; register 0 is the default only because it is a safe scratch
+register in the currently deployed frequency-test bitfile. Callers working
+with another bitfile must choose a known-safe probe address.
+
+An address-phase I2C NACK reported by the MCU as `ADDR_ACK_ERROR` becomes
+`FPGAInterfaceUnavailable`, since a valid bitfile may omit the endpoint.
+Data-phase NACKs and ambiguous errors remain ordinary `RegisterAccessError`
+failures. The deployed MCU firmware must implement the `FP` transport and the
+loaded FPGA bitfile must instantiate the generic I2C slave. Bitfile profiles,
+identity matching, named registers, permissions, and high-level diagnostics
+are not implemented yet; raw writes therefore have no semantic safety checks.
+Those later phases are described in `../FPGA_GENERIC_INTERFACE_PLAN.md`.
 
 ## Debug Logging
 

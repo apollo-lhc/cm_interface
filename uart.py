@@ -4,7 +4,7 @@ from .compat import spaced_hex
 from .errors import UARTError
 
 class UART:
-    """Thin wrapper around pySerial for the fixed /dev/ttySL4 port.
+    """Thin wrapper around pySerial for the default /dev/ttyUL4 port.
 
     The UART connection is opened lazily – if the serial device is not present
     during development, the constructor does not raise an error.  The first
@@ -13,7 +13,7 @@ class UART:
     DEFAULT_BAUD = 115_200
     DEFAULT_TIMEOUT = 5.0  # seconds
 
-    def __init__(self, dev_path: str = "/dev/ttySL4",
+    def __init__(self, dev_path: str = "/dev/ttyUL4",
                  baud: int = DEFAULT_BAUD,
                  timeout: float = DEFAULT_TIMEOUT,
                  debug: Optional[TextIO] = None):
@@ -21,7 +21,7 @@ class UART:
         Parameters
         ----------
         dev_path : str
-            Serial device path (default: "/dev/ttySL4")
+            Serial device path (default: "/dev/ttyUL4")
         baud : int
             Baud rate (default: 115200)
         timeout : float

@@ -6,7 +6,7 @@ This repository does **not** define any custom Opencode agents. The framework is
 
 - **General agents** (e.g., `explore` or `general`) can import `cm_interface` to query hardware state, generate register reports, or drive configuration workflows.
 - **Specialized agents** (e.g., a build‑automation or CI agent) may use the `Registry` to verify that all expected devices are reachable before proceeding with a test run.
-- Because the UART connection is opened lazily, an agent can safely instantiate the `Registry` on a development host where `/dev/ttySL4` does not exist; the actual serial port will only be accessed when a read/write is performed on a device.
+- Because the UART connection is opened lazily, an agent can safely instantiate the `Registry` on a development host where `/dev/ttyUL4` does not exist; the actual serial port will only be accessed when a read/write is performed on a device.
 - **Debug logging** is available for troubleshooting: pass `debug=sys.stdout` or `debug=file_object` to `Registry()` to log all UART transactions.
 
 ## Architecture
@@ -45,45 +45,70 @@ The register configuration is split into:
   hidden, continue independent operations, and do not broadly suppress
   unexpected programming errors such as `TypeError`.
 
-## Planned device extensions
+## MCU and FPGA endpoint status
 
-Two device families are planned but are not yet implemented in this Python
-package or the MCU ProgCom protocol:
+`Registry` currently creates `mcu`, `fpgas["F1"]`, and `fpgas["F2"]` for
+every setup. They are also available through `get_mcu()` and `get_fpga()`.
+Creating these objects does not prove that the deployed MCU firmware or FPGA
+bitfile implements the corresponding endpoint; access remains lazy until the
+first transaction.
 
-- The MCU itself, for power-state and alarm status, ADC telemetry, reset-cause
-  and failure diagnostics, and controlled clearing of latched errors. The
-  existing Zynq push-monitoring data does not need to be duplicated blindly;
-  pull registers should concentrate on live diagnostics, detailed failure
-  cause, and state needed for debugging. Power commands must define arbitration
-  with the dedicated Zynq power-control GPIO and the existing CLI. Preserve
-  both error histories: the expressive volatile CLI log and the compact
-  persistent EEPROM log. ADC values use the same IEEE-754 binary16 bit pattern
-  as `ZynqMonTask`, transported as two little-endian ProgCom bytes. Raw ADC
-  counts are not exposed. The first release also exposes the configured
-  voltage-alarm targets in binary16, with a target-valid channel bitmap. See
-  `../MCU_DEVICE_PLAN.md`.
+### MCU endpoint
 
-  MCU clear operations follow the existing CLI semantics. An alarm normally
-  cuts board power, removing its triggering condition before the operator
-  clears the retained latch; power `clearfail` clears the active power-failure
-  latch immediately. ProgCom confirmation means the request was queued, and
-  completion is read from the normal latch/FSM status rather than a generic
-  command tracker. Asserting the ProgCom inhibit first is recommended but is
-  not a clear-command precondition. Clearing must retain last-failure and
-  persistent history.
+The Python `MCU` client for ProgCom device `MC 0` is implemented as the
+read-only Phase-1 foundation for CM REV2 and REV3:
 
-  The persistent EEPROM error ring is only 64 words. Expose its capacity and a
-  mutation generation, but do not add a maintained valid-entry count; Python
-  can scan the complete logical ring and ignore empty/erased sentinels.
+- `system_info` verifies magic `CMCU` and register-map major version 1, then
+  returns map version, hardware revision, capability and health masks, board
+  ID, uptime, reset cause, watchdog fields, and firmware Git version;
+- `read_adc()` / `adc_readings` returns a coherent 21-channel snapshot with
+  little-endian IEEE-754 binary16 values plus validity and error bitmaps;
+- `read_adc_targets()` / `adc_targets` returns the coherent configured target
+  values and target-valid bitmap; and
+- ADC and target readers use even generation counters and retry if publication
+  changes during a multi-command read. Named lookup is supported on the
+  returned snapshots.
 
-  The MCU device and its ProgCom register map target CM REV2 and REV3 only.
-  REV1 is out of scope; do not design an alternate transport or REV1-specific
-  map.
-- Two FPGA generic I2C endpoints, one on F1 and one on F2. These require a
-  stable raw transport plus data-driven, bitfile-specific Python profiles;
-  their register maps must not be compiled into the MCU. Profiles are selected
-  independently because F1 and F2 may load different designs. See
-  `../FPGA_GENERIC_INTERFACE_PLAN.md`.
+The `POWER`, `ALARM`, `PERSISTENT_LOG_*`, and `CONTROL` page numbers and their
+capability bits are reserved in the Python enums, but Python accessors and
+control operations for those phases are not implemented. Do not infer support
+from an enum member alone; inspect the firmware-reported capability mask.
+
+This checkout contains the Python client and memory-backed unit tests, not the
+matching MCU firmware source or a target-hardware result. Deployed firmware
+must implement the version-1 `MC 0` map; older firmware may still answer
+`MCU device not implemented`. See `../MCU_DEVICE_PLAN.md` and
+`../MCU_FIRMWARE_IMPLEMENTATION_PLAN.md` for the remaining phases.
+
+### FPGA endpoints
+
+The Python Phase-1 raw client is implemented for ProgCom `FP 0` (F1) and
+`FP 1` (F2):
+
+- page 0 byte addresses `0x00` through `0xff` are accepted;
+- one transaction transfers one to four bytes, while `read_block()` splits a
+  longer sequential read into bounded transactions;
+- byte writes preserve caller-provided wire order; integer writes require an
+  explicit size and are encoded little-endian;
+- `probe(reg)` returns `FPGAProbeResult` without raising for `CMError`; its
+  default register 0 is known safe only for the currently deployed
+  frequency-test bitfile; and
+- an explicit chained `ADDR_ACK_ERROR` is translated to
+  `FPGAInterfaceUnavailable`. Data-phase, timeout, and ambiguous NACK errors
+  remain `RegisterAccessError`.
+
+Raw FPGA generic register reads and writes through the MCU ProgCom transport
+have been tested successfully on hardware. This validates the Phase-1 generic
+access path; it does not validate a universal register map, since register
+semantics still belong to the loaded bitfile.
+
+The client is intentionally unprofiled. It provides no bitfile identity,
+register names, permissions, decoding, or protection against semantically
+unsafe writes. The deployed MCU firmware must provide the `FP` transport and
+the loaded bitfile must instantiate a compatible generic I2C endpoint. A
+missing bitfile endpoint is expected and is not automatically a board fault.
+See `../FPGA_GENERIC_INTERFACE_PLAN.md` for the unimplemented profile and
+identity phases.
 
 ### FPGA generic-port hardware facts
 
@@ -105,13 +130,12 @@ The CM REV3 schematic, sheet 38, and the current `clk_freq_fpga_cmd` establish:
 - `/I2C_RESET_FPGAS` resets the shared mux, so generic-port error recovery
   must not toggle it without coordinating with SYSMON monitoring.
 
-The proposed Python design has a raw `FPGA` object for F1/F2 and validated
-JSON profiles for named registers, decoding, access permissions, and optional
-high-level diagnostics. Legacy bitfiles require explicit profile selection.
-Future bitfiles should expose a small read-only descriptor containing magic,
-interface ABI, profile/design ID, register-map hash, build ID, capabilities,
-and optionally the F1/F2 position. Do not guess a bitfile by reading arbitrary
-registers.
+The implemented Python layer stops at the raw `FPGA` objects for F1/F2.
+Validated JSON profiles, named-register decoding, access permissions, and
+high-level diagnostics remain future work. Future bitfiles should expose a
+small read-only descriptor containing magic, interface ABI, profile/design ID,
+register-map hash, build ID, capabilities, and optionally the F1/F2 position.
+Do not guess a bitfile by reading arbitrary registers.
 
 The concrete project
 `/nfs/cms/hw/wittich/25G_2/vu13p_ibert_25g` shows how complex instances fit
@@ -137,25 +161,27 @@ a board fault.
 ```python
 from cm_interface.registry import Registry
 
-# Default (empty firefly layout, core config from core_config.py)
-reg = Registry()
-
-# Load a board preset ('tf' or 'it_dtc')
+# Choose the setup, UART, timeout, and debug stream on the first construction.
 reg = Registry(setup='tf')
 
-# With debug logging enabled
-import sys
-reg = Registry(setup='tf', debug=sys.stdout)
+# Registry() with no setup instead creates an empty Firefly layout while still
+# providing clocks, LGA80Ds, the MCU, and both FPGA objects.
 
 # Access devices
-clock = reg.get_clock('R0A')        # Si5395 clock generator
-firefly = reg.get_firefly('F2_6')   # populated TF Firefly4 transceiver
+clock = reg.get_clock('R0A')          # Si5395 clock generator
+firefly = reg.get_firefly('F2_6')     # populated TF Firefly4 transceiver
 lga80d = reg.get_lga80d('F1VCCINT1') # LGA80D DC-DC converter
+mcu = reg.get_mcu()                   # ProgCom MC 0 client
+f1 = reg.get_fpga('F1')               # ProgCom FP 0 raw client
+f2 = reg.get_fpga('F2')               # ProgCom FP 1 raw client
 ```
 
 ## Register Access
 
-All devices expose `read_reg()` and `write_reg()` methods that accept 16-bit addresses. The UART bridge automatically handles page selection:
+The common register API represents a page and offset as one 16-bit integer.
+The MCU client uses this as `page << 8 | offset`; clocks use it for their
+native pages. The raw FPGA clients deliberately reject nonzero pages and
+accept only `0x00` through `0xff`:
 
 ```python
 # Read from page 0x00 (default page)

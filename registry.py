@@ -20,7 +20,7 @@ class Registry:
     _instance = None
 
     def __new__(cls, setup: str = None, debug: Optional[TextIO] = None,
-                dev_path: str = "/dev/ttySL4",
+                dev_path: str = "/dev/ttyUL4",
                 timeout: float = UART.DEFAULT_TIMEOUT):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
@@ -28,7 +28,7 @@ class Registry:
         return cls._instance
 
     def _init(self, setup: str = None, debug: Optional[TextIO] = None,
-              dev_path: str = "/dev/ttySL4",
+              dev_path: str = "/dev/ttyUL4",
               timeout: float = UART.DEFAULT_TIMEOUT):
         self.uart = UART(debug=debug, dev_path=dev_path, timeout=timeout)
         self.mcu = MCU(self.uart)

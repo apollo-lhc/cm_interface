@@ -5,7 +5,7 @@
 ## Overview
 
 This repository implements a Python framework to manage access to devices 
-accessible via UART (`/dev/ttySL4`). The UART is not accessible on the 
+accessible via UART (`/dev/ttyUL4`). The UART is not accessible on the
 development machine — it exists on the target hardware (SM/Zynq platform).
 
 ## Architecture
@@ -221,7 +221,7 @@ voltage = lga.voltage
 
 | Requirement | Implementation |
 |-------------|----------------|
-| UART communication | `uart.UART` class handles `/dev/ttySL4` |
+| UART communication | `uart.UART` class handles `/dev/ttyUL4` |
 | 8-bit addresses, 16-bit data | All device registers use this format |
 | Page-based addressing | Si5395 (256 pages), Firefly (upper pages 0x00-0x0B) |
 | Firefly support | `Firefly12`, `Firefly4`, `FireflyTx`, `FireflyRx`, CERN-B variants |
