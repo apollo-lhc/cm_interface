@@ -55,24 +55,35 @@ first transaction.
 
 ### MCU endpoint
 
-The Python `MCU` client for ProgCom device `MC 0` is implemented as the
-read-only Phase-1 foundation for CM REV2 and REV3:
+The Python `MCU` client for ProgCom device `MC 0` follows
+`../MCU_REGISTER_MAP.md` (map major version 1) for CM REV2 and REV3:
 
 - `system_info` verifies magic `CMCU` and register-map major version 1, then
   returns map version, hardware revision, capability and health masks, board
-  ID, uptime, reset cause, watchdog fields, and firmware Git version;
-- `read_adc()` / `adc_readings` returns a coherent 21-channel snapshot with
-  little-endian IEEE-754 binary16 values plus validity and error bitmaps;
-- `read_adc_targets()` / `adc_targets` returns the coherent configured target
-  values and target-valid bitmap; and
-- ADC and target readers use even generation counters and retry if publication
-  changes during a multi-command read. Named lookup is supported on the
-  returned snapshots.
+  ID, uptime, reset cause, and firmware Git version. There is no watchdog bit
+  or watchdog registers — the watchdog is unused firmware-wide;
+- `read_adc()` / `adc_readings` returns a 21-channel snapshot of raw
+  little-endian IEEE-754 binary16 values; an unpublished channel reads back
+  as `NaN` rather than carrying a separate validity bitmap. A single atomic
+  4-byte-aligned read per channel means nothing can tear, so there is no
+  generation counter on this page;
+- `read_power()` / `power` returns the Power page's FSM state, flags, PG
+  masks, and per-supply state array. It uses an even/odd generation counter
+  and retries if publication changes mid-read;
+- `read_alarm()` / `alarm` returns the Alarm page's task states and
+  temperature/voltage bitmaps. It has no generation counter — each field
+  group (state bytes; temperature status/latch pair; the three voltage-alarm
+  bytes) is updated atomically by firmware and read in one transaction;
+- `read_persistent_log_info()` and `read_persistent_log_entries()` read the
+  frozen (offsets final, not yet firmware-served) persistent-log pages; and
+- `send_control(McuControlCommand...)` writes the one-byte write-only
+  Control-page command (`ASSERT`/`RELEASE_PROGCOM_POWER_INHIBIT`,
+  `CLEAR_POWER_FAULT`, `CLEAR_ALARM_LATCHES`).
 
-The `POWER`, `ALARM`, `PERSISTENT_LOG_*`, and `CONTROL` page numbers and their
-capability bits are reserved in the Python enums, but Python accessors and
-control operations for those phases are not implemented. Do not infer support
-from an enum member alone; inspect the firmware-reported capability mask.
+There is no `AdcTarget`/ADC-target page — it does not exist in the register
+map. Do not infer support from an enum member alone; inspect the
+firmware-reported capability mask, since a page can be frozen (offsets final)
+without firmware yet serving real data.
 
 This checkout contains the Python client and memory-backed unit tests, not the
 matching MCU firmware source or a target-hardware result. Deployed firmware

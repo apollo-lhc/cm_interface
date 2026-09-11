@@ -1,7 +1,13 @@
-"""Typed access to the command-module MCU's own ProgCom register area."""
+"""Typed access to the command-module MCU's own ProgCom register area.
 
-from enum import IntEnum, IntFlag
+Register layout follows ``MCU_REGISTER_MAP.md`` (map major version 1). That
+file is the hand-maintained source of truth shared with the firmware's
+``MCU_Reg.h`` — keep this module in sync with it, not the other way around.
+"""
+
+import math
 import struct
+from enum import IntEnum, IntFlag
 from typing import Tuple
 
 from ..compat import dataclass
@@ -11,6 +17,8 @@ from .base import Device
 MCU_MAGIC = b"CMCU"
 MCU_MAP_MAJOR = 1
 ADC_CHANNEL_COUNT = 21
+POWER_SUPPLY_ARRAY_LEN = 12
+PERSISTENT_LOG_CAPACITY_WORDS = 64
 
 ADC_CHANNEL_NAMES = (
     "VCC_12V", "VCC_M3V3", "VCC_3V3", "VCC_4V0", "VCC_1V8",
@@ -26,7 +34,6 @@ class McuPage(IntEnum):
     POWER = 0x01
     ALARM = 0x02
     ADC = 0x03
-    ADC_TARGET = 0x04
     PERSISTENT_LOG_INFO = 0x30
     PERSISTENT_LOG_DATA = 0x31
     CONTROL = 0x7F
@@ -42,27 +49,53 @@ class SystemReg(IntEnum):
     HEALTH_SUMMARY = 0x0C        # uint32
     BOARD_ID = 0x10              # uint32
     UPTIME_SECONDS = 0x14        # uint32
-    RESET_CAUSE = 0x18           # uint32
-    WATCHDOG_REGISTERED = 0x20   # uint32
-    WATCHDOG_FED = 0x24          # uint32
-    WATCHDOG_FAILED = 0x28       # uint32
+    RESET_CAUSE = 0x18           # uint32, raw uncleared SysCtl value
     GIT_VERSION = 0x40           # char[20], NUL padded
 
 
+class PowerReg(IntEnum):
+    GENERATION = 0x00            # uint32
+    FSM_STATE = 0x04             # uint8
+    FLAGS = 0x05                 # uint8 bitmap
+    LIVE_PG_MASK = 0x08          # uint32
+    EXPECTED_PG_MASK = 0x0C      # uint32
+    SOFTWARE_IGNORE_MASK = 0x10  # uint32
+    FAILED_MASK = 0x14           # uint32
+    SUPPLY_COUNT = 0x18          # uint8
+    SUPPLY_STATE = 0x1C          # uint8[12], index = PG-pin index
+
+
+class AlarmReg(IntEnum):
+    TEMP_TASK_STATE = 0x00        # uint8
+    VOLTAGE_TASK_STATE = 0x01     # uint8
+    TEMP_STATUS = 0x04            # uint32 bitmap
+    TEMP_WARN_LATCH = 0x08         # uint32 bitmap
+    VOLTAGE_ALARM_GENERAL = 0x0C  # uint8 bitmap
+    VOLTAGE_ALARM_F1 = 0x0D       # uint8 bitmap
+    VOLTAGE_ALARM_F2 = 0x0E       # uint8 bitmap
+
+
 class AdcReg(IntEnum):
-    GENERATION = 0x00            # uint32
-    SAMPLE_UPTIME_SECONDS = 0x04 # uint32
-    VALID_CHANNELS = 0x08        # uint32 bitmap
-    ERROR_CHANNELS = 0x0C        # uint32 bitmap
-    CHANNEL_COUNT = 0x10         # uint8
-    VALUES = 0x20                # binary16[21]
+    VALUES = 0x00                 # binary16[21]
 
 
-class AdcTargetReg(IntEnum):
-    GENERATION = 0x00            # uint32
-    VALID_CHANNELS = 0x04        # uint32 bitmap
-    CHANNEL_COUNT = 0x08         # uint8
-    VALUES = 0x20                # binary16[21]
+class PersistentLogInfoReg(IntEnum):
+    FORMAT_VERSION = 0x00        # uint32
+    CAPACITY_WORDS = 0x04        # uint32
+    GENERATION = 0x08            # uint32, mutation generation
+    LATEST_ERROR_CODE = 0x0C     # uint32
+    CONTINUATION_COUNT = 0x10    # uint32
+
+
+class ControlReg(IntEnum):
+    COMMAND = 0x00                # uint8, write-only
+
+
+class McuControlCommand(IntEnum):
+    ASSERT_PROGCOM_POWER_INHIBIT = 1
+    RELEASE_PROGCOM_POWER_INHIBIT = 2
+    CLEAR_POWER_FAULT = 3
+    CLEAR_ALARM_LATCHES = 4
 
 
 class McuCapability(IntFlag):
@@ -70,7 +103,6 @@ class McuCapability(IntFlag):
     POWER = 1 << 1
     ALARMS = 1 << 2
     ADC = 1 << 3
-    ADC_TARGETS = 1 << 4
     PERSISTENT_LOG = 1 << 5
     CONTROLS = 1 << 6
 
@@ -79,8 +111,54 @@ class McuHealth(IntFlag):
     POWER_FAULT = 1 << 0
     TEMPERATURE_ALARM = 1 << 1
     VOLTAGE_ALARM = 1 << 2
-    WATCHDOG_FAILURE = 1 << 3
-    ADC_ERROR = 1 << 4
+    ADC_ERROR = 1 << 3
+
+
+class PowerFsmState(IntEnum):
+    POWER_FAILURE = 0
+    POWER_INIT = 1
+    POWER_DOWN = 2
+    POWER_OFF = 3
+    POWER_L1ON = 4
+    POWER_L2ON = 5
+    POWER_L3ON = 6
+    POWER_L4ON = 7
+    POWER_L5ON = 8
+    POWER_L6ON = 9
+    POWER_ON = 10
+
+
+class PowerFlags(IntFlag):
+    BLADE_POWER_EN = 1 << 0
+    CLI_INHIBIT = 1 << 1
+    PROGCOM_INHIBIT = 1 << 2
+    POWER_FAULT_LATCH = 1 << 3
+    ALARM_SHUTDOWN_LATCH = 1 << 4
+    F1_ENABLE = 1 << 5
+    F2_ENABLE = 1 << 6
+
+
+class PerSupplyState(IntEnum):
+    PWR_UNKNOWN = 0
+    PWR_ON = 1
+    PWR_OFF = 2
+    PWR_DISABLED = 3
+    PWR_FAILED = 4
+
+
+class AlarmTaskState(IntEnum):
+    ALM_INIT = 0
+    ALM_NORMAL = 1
+    ALM_WARN = 2
+    ALM_FAULT_ERRORING = 3
+    ALM_FAULT_ERROR_CLEARED = 4
+
+
+class TemperatureAlarmBit(IntFlag):
+    TM4C = 1 << 0
+    FIREFLY = 1 << 1
+    FPGA = 1 << 2
+    DCDC = 1 << 3
 
 
 @dataclass(frozen=True)
@@ -94,9 +172,6 @@ class McuSystemInfo:
     board_id: int
     uptime_seconds: int
     reset_cause: int
-    watchdog_registered: int
-    watchdog_fed: int
-    watchdog_failed: int
     git_version: str
 
 
@@ -105,16 +180,14 @@ class AdcReading:
     index: int
     name: str
     value: float
-    valid: bool
-    error: bool
+
+    @property
+    def valid(self) -> bool:
+        return not math.isnan(self.value)
 
 
 @dataclass(frozen=True)
 class AdcSnapshot:
-    generation: int
-    sample_uptime_seconds: int
-    valid_channels: int
-    error_channels: int
     readings: Tuple[AdcReading, ...]
 
     def __getitem__(self, name: str) -> AdcReading:
@@ -125,31 +198,42 @@ class AdcSnapshot:
 
 
 @dataclass(frozen=True)
-class AdcTarget:
-    index: int
-    name: str
-    value: float
-    valid: bool
+class PowerSnapshot:
+    generation: int
+    fsm_state: PowerFsmState
+    flags: PowerFlags
+    live_pg_mask: int
+    expected_pg_mask: int
+    software_ignore_mask: int
+    failed_mask: int
+    supply_count: int
+    supply_states: Tuple[PerSupplyState, ...]
 
 
 @dataclass(frozen=True)
-class AdcTargetSnapshot:
-    generation: int
-    valid_channels: int
-    targets: Tuple[AdcTarget, ...]
+class AlarmSnapshot:
+    temp_task_state: AlarmTaskState
+    voltage_task_state: AlarmTaskState
+    temp_status: TemperatureAlarmBit
+    temp_warn_latch: TemperatureAlarmBit
+    voltage_alarm_general: int
+    voltage_alarm_f1: int
+    voltage_alarm_f2: int
 
-    def __getitem__(self, name: str) -> AdcTarget:
-        for target in self.targets:
-            if target.name == name:
-                return target
-        raise KeyError(name)
+
+@dataclass(frozen=True)
+class PersistentLogInfo:
+    format_version: int
+    capacity_words: int
+    generation: int
+    latest_error_code: int
+    continuation_count: int
 
 
 class MCU(Device):
     """The command-module MCU at ProgCom device ``MC 0``.
 
     Register numbers use the normal package convention ``page << 8 | offset``.
-    The initial implementation provides the read-only Phase-1 foundation.
     """
 
     def __init__(self, uart):
@@ -206,75 +290,127 @@ class MCU(Device):
             board_id=self._read_u32(page, SystemReg.BOARD_ID),
             uptime_seconds=self._read_u32(page, SystemReg.UPTIME_SECONDS),
             reset_cause=self._read_u32(page, SystemReg.RESET_CAUSE),
-            watchdog_registered=self._read_u32(page, SystemReg.WATCHDOG_REGISTERED),
-            watchdog_fed=self._read_u32(page, SystemReg.WATCHDOG_FED),
-            watchdog_failed=self._read_u32(page, SystemReg.WATCHDOG_FAILED),
             git_version=self.read_ascii(
                 self._reg(page, SystemReg.GIT_VERSION), 20
             ),
         )
 
-    def _read_half_array(self, page: McuPage, start: IntEnum,
-                         count: int) -> Tuple[float, ...]:
-        raw = self.read_block(self._reg(page, start), count * 2)
-        return tuple(value[0] for value in struct.iter_unpack("<e", raw))
+    def read_adc(self) -> AdcSnapshot:
+        """Read the ADC sample array.
 
-    def read_adc(self, retries: int = 3) -> AdcSnapshot:
-        """Read one coherent ADC sample, retrying if publication changed."""
-        if retries < 1:
-            raise ValueError("retries must be at least one")
+        One 4-byte-aligned atomic ``float`` read per channel means nothing
+        can tear, so there is no generation counter here (unlike
+        :meth:`read_power`). A channel with no current reading is ``NaN``.
+        """
         page = McuPage.ADC
-        for _ in range(retries):
-            generation = self._read_u32(page, AdcReg.GENERATION)
-            if generation & 1:
-                continue
-            sample_time = self._read_u32(page, AdcReg.SAMPLE_UPTIME_SECONDS)
-            valid = self._read_u32(page, AdcReg.VALID_CHANNELS)
-            errors = self._read_u32(page, AdcReg.ERROR_CHANNELS)
-            count = self._read_u8(page, AdcReg.CHANNEL_COUNT)
-            if count != ADC_CHANNEL_COUNT:
-                raise RuntimeError(
-                    f"MCU reports {count} ADC channels; expected {ADC_CHANNEL_COUNT}"
-                )
-            values = self._read_half_array(page, AdcReg.VALUES, count)
-            if self._read_u32(page, AdcReg.GENERATION) == generation:
-                readings = tuple(
-                    AdcReading(i, ADC_CHANNEL_NAMES[i], value,
-                               bool(valid & (1 << i)), bool(errors & (1 << i)))
-                    for i, value in enumerate(values)
-                )
-                return AdcSnapshot(generation, sample_time, valid, errors, readings)
-        raise RuntimeError("MCU ADC sample changed during every read attempt")
+        raw = self.read_block(self._reg(page, AdcReg.VALUES), ADC_CHANNEL_COUNT * 2)
+        values = tuple(value[0] for value in struct.iter_unpack("<e", raw))
+        readings = tuple(
+            AdcReading(i, ADC_CHANNEL_NAMES[i], value)
+            for i, value in enumerate(values)
+        )
+        return AdcSnapshot(readings)
 
     @property
     def adc_readings(self) -> AdcSnapshot:
         return self.read_adc()
 
-    def read_adc_targets(self, retries: int = 3) -> AdcTargetSnapshot:
-        """Read one coherent configured voltage-target snapshot."""
+    def read_power(self, retries: int = 3) -> PowerSnapshot:
+        """Read one coherent Power snapshot, retrying if publication changed."""
         if retries < 1:
             raise ValueError("retries must be at least one")
-        page = McuPage.ADC_TARGET
+        page = McuPage.POWER
         for _ in range(retries):
-            generation = self._read_u32(page, AdcTargetReg.GENERATION)
+            generation = self._read_u32(page, PowerReg.GENERATION)
             if generation & 1:
                 continue
-            valid = self._read_u32(page, AdcTargetReg.VALID_CHANNELS)
-            count = self._read_u8(page, AdcTargetReg.CHANNEL_COUNT)
-            if count != ADC_CHANNEL_COUNT:
-                raise RuntimeError(
-                    f"MCU reports {count} ADC target slots; expected {ADC_CHANNEL_COUNT}"
+            fsm_state = PowerFsmState(self._read_u8(page, PowerReg.FSM_STATE))
+            flags = PowerFlags(self._read_u8(page, PowerReg.FLAGS))
+            live_pg_mask = self._read_u32(page, PowerReg.LIVE_PG_MASK)
+            expected_pg_mask = self._read_u32(page, PowerReg.EXPECTED_PG_MASK)
+            software_ignore_mask = self._read_u32(page, PowerReg.SOFTWARE_IGNORE_MASK)
+            failed_mask = self._read_u32(page, PowerReg.FAILED_MASK)
+            supply_count = self._read_u8(page, PowerReg.SUPPLY_COUNT)
+            raw_states = self.read_block(
+                self._reg(page, PowerReg.SUPPLY_STATE), POWER_SUPPLY_ARRAY_LEN
+            )
+            supply_states = tuple(PerSupplyState(value) for value in raw_states)
+            if self._read_u32(page, PowerReg.GENERATION) == generation:
+                return PowerSnapshot(
+                    generation, fsm_state, flags, live_pg_mask, expected_pg_mask,
+                    software_ignore_mask, failed_mask, supply_count, supply_states,
                 )
-            values = self._read_half_array(page, AdcTargetReg.VALUES, count)
-            if self._read_u32(page, AdcTargetReg.GENERATION) == generation:
-                targets = tuple(
-                    AdcTarget(i, ADC_CHANNEL_NAMES[i], value,
-                              bool(valid & (1 << i)))
-                    for i, value in enumerate(values)
-                )
-                return AdcTargetSnapshot(generation, valid, targets)
-        raise RuntimeError("MCU ADC targets changed during every read attempt")
+        raise RuntimeError("MCU power snapshot changed during every read attempt")
 
     @property
-    def adc_targets(self) -> AdcTargetSnapshot:
-        return self.read_adc_targets()
+    def power(self) -> PowerSnapshot:
+        return self.read_power()
+
+    def read_alarm(self) -> AlarmSnapshot:
+        """Read the Alarm page.
+
+        No generation counter: the two FSM-state bytes, the temperature
+        status/warning-latch pair, and the three voltage-alarm bytes are each
+        updated atomically as a group by firmware, so each group is read in
+        one transaction. Staleness between the temperature and voltage groups
+        is ordinary staleness between two independently scheduled tasks, not
+        tearing.
+        """
+        page = McuPage.ALARM
+        temp_task_state = AlarmTaskState(self._read_u8(page, AlarmReg.TEMP_TASK_STATE))
+        voltage_task_state = AlarmTaskState(
+            self._read_u8(page, AlarmReg.VOLTAGE_TASK_STATE)
+        )
+        temp_block = self.read_block(self._reg(page, AlarmReg.TEMP_STATUS), 8)
+        temp_status, temp_warn_latch = struct.unpack("<II", temp_block)
+        voltage_block = self.read_block(
+            self._reg(page, AlarmReg.VOLTAGE_ALARM_GENERAL), 3
+        )
+        voltage_general, voltage_f1, voltage_f2 = voltage_block
+        return AlarmSnapshot(
+            temp_task_state,
+            voltage_task_state,
+            TemperatureAlarmBit(temp_status),
+            TemperatureAlarmBit(temp_warn_latch),
+            voltage_general,
+            voltage_f1,
+            voltage_f2,
+        )
+
+    @property
+    def alarm(self) -> AlarmSnapshot:
+        return self.read_alarm()
+
+    def read_persistent_log_info(self) -> PersistentLogInfo:
+        page = McuPage.PERSISTENT_LOG_INFO
+        return PersistentLogInfo(
+            format_version=self._read_u32(page, PersistentLogInfoReg.FORMAT_VERSION),
+            capacity_words=self._read_u32(page, PersistentLogInfoReg.CAPACITY_WORDS),
+            generation=self._read_u32(page, PersistentLogInfoReg.GENERATION),
+            latest_error_code=self._read_u32(
+                page, PersistentLogInfoReg.LATEST_ERROR_CODE
+            ),
+            continuation_count=self._read_u32(
+                page, PersistentLogInfoReg.CONTINUATION_COUNT
+            ),
+        )
+
+    def read_persistent_log_entries(self) -> Tuple[int, ...]:
+        """Read the raw 32-bit log words, logical index 0 = newest.
+
+        Firmware publishes no valid-entry count: scan all entries and filter
+        erased/empty sentinels yourself.
+        """
+        page = McuPage.PERSISTENT_LOG_DATA
+        raw = self.read_block(self._reg(page, 0x00), PERSISTENT_LOG_CAPACITY_WORDS * 4)
+        return struct.unpack(f"<{PERSISTENT_LOG_CAPACITY_WORDS}I", raw)
+
+    def send_control(self, command: McuControlCommand) -> None:
+        """Send a one-byte command to the write-only Control page.
+
+        A full command queue on the firmware side surfaces as an
+        ``MCU_REG_QUEUE_FULL``-style error from :meth:`write_reg`, not a
+        stall; there is no atomic multi-queue delivery for any command here.
+        """
+        page = McuPage.CONTROL
+        self.write_reg(self._reg(page, ControlReg.COMMAND), bytes([int(command)]))

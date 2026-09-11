@@ -92,21 +92,30 @@ print(info.git_version, info.uptime_seconds, info.capabilities, info.health)
 adc = mcu.read_adc()
 print(adc["VCC_12V"].value, adc["VCC_12V"].valid)
 
-targets = mcu.read_adc_targets()
-print(targets["F1_VCCINT"].value, targets["F1_VCCINT"].valid)
+power = mcu.read_power()
+print(power.fsm_state, power.flags, power.supply_states)
+
+alarm = mcu.read_alarm()
+print(alarm.temp_task_state, alarm.temp_status)
+
+mcu.send_control(McuControlCommand.CLEAR_ALARM_LATCHES)
 ```
 
-`system_info` validates the `CMCU` magic and map major version 1. ADC and
-target snapshots contain 21 little-endian IEEE-754 binary16 values and use
-generation counters to avoid returning a torn multi-transaction snapshot.
-ADC readings include validity and error bitmaps; targets include a validity
-bitmap. Snapshot entries can be selected by channel name.
+`system_info` validates the `CMCU` magic and map major version 1. ADC values
+are 21 little-endian IEEE-754 binary16 values; an unpublished channel reads
+back as `NaN` rather than carrying a separate validity bitmap. `read_power()`
+uses an even/odd generation counter and retries if publication changes mid-
+read, matching the ~25ms control-loop pass firmware updates it in. `read_alarm()`
+has no generation counter — its state/status/latch fields are each updated
+atomically as a group by firmware, so each group is read in one transaction.
+Persistent-log pages are frozen (offsets are final) but not yet served by
+firmware — reads currently return `invalid MCU page`. Snapshot entries can be
+selected by channel name.
 
-Power, alarm, persistent-log, and control pages are reserved in the enums but
-do not yet have Python accessors. The Python implementation is unit-tested with
-an in-memory endpoint; this repository does not contain the matching MCU
-firmware or establish what is installed on a target. The deployed firmware
-must implement the version-1 `MC 0` map. Older firmware may return
+The Python implementation is unit-tested with an in-memory endpoint; this
+repository does not contain the matching MCU firmware or establish what is
+installed on a target. The deployed firmware must implement the version-1
+`MC 0` map. Older firmware may return
 `MCU device not implemented`. The remaining firmware and Python phases are
 tracked in `../MCU_FIRMWARE_IMPLEMENTATION_PLAN.md` and
 `../MCU_DEVICE_PLAN.md`.
