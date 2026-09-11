@@ -114,6 +114,52 @@ class McuHealth(IntFlag):
     ADC_ERROR = 1 << 3
 
 
+class McuResetCause(IntFlag):
+    """TI TM4C1290 ``SYSCTL_RESC`` reset-cause bits."""
+
+    EXT = 1 << 0           # external RST pin assertion
+    POR = 1 << 1           # power-on reset
+    BOR = 1 << 2           # VDD or VDDA brown-out reset
+    WDT0 = 1 << 3          # Watchdog Timer 0 timeout
+    SW = 1 << 4            # software-requested system reset
+    WDT1 = 1 << 5          # Watchdog Timer 1 timeout
+    HSSR = 1 << 12         # Hardware System Service Request reset
+    MOSCFAIL = 1 << 16     # main-oscillator validation failure
+
+
+RESET_CAUSE_DESCRIPTIONS = (
+    (McuResetCause.EXT, "external reset pin asserted"),
+    (McuResetCause.POR, "power-on reset"),
+    (McuResetCause.BOR, "VDD or VDDA brown-out reset"),
+    (McuResetCause.WDT0, "Watchdog Timer 0 timed out"),
+    (McuResetCause.SW, "software-requested system reset"),
+    (McuResetCause.WDT1, "Watchdog Timer 1 timed out"),
+    (McuResetCause.HSSR, "Hardware System Service Request reset"),
+    (McuResetCause.MOSCFAIL, "main-oscillator validation failure"),
+)
+RESET_CAUSE_KNOWN_MASK = sum(int(flag) for flag, _ in RESET_CAUSE_DESCRIPTIONS)
+
+
+def describe_reset_cause(cause: McuResetCause) -> Tuple[str, ...]:
+    """Return readable details for all set ``SYSCTL_RESC`` bits.
+
+    RESC bits are sticky across reset sequences until cleared, so multiple
+    descriptions may be returned. Unknown bits are retained and reported.
+    """
+    raw = int(cause)
+    details = [
+        "{}: {}".format(flag.name, description)
+        for flag, description in RESET_CAUSE_DESCRIPTIONS
+        if raw & int(flag)
+    ]
+    unknown = raw & ~RESET_CAUSE_KNOWN_MASK & 0xFFFFFFFF
+    if unknown:
+        details.append("UNKNOWN: reserved/unrecognized bits 0x{:08X}".format(unknown))
+    if not details:
+        details.append("none reported")
+    return tuple(details)
+
+
 class PowerFsmState(IntEnum):
     POWER_FAILURE = 0
     POWER_INIT = 1
@@ -171,7 +217,7 @@ class McuSystemInfo:
     health: McuHealth
     board_id: int
     uptime_seconds: int
-    reset_cause: int
+    reset_cause: McuResetCause
     git_version: str
 
 
@@ -267,14 +313,13 @@ class MCU(Device):
             raise RuntimeError(
                 f"unexpected MCU register-map magic {magic!r}; expected {MCU_MAGIC!r}"
             )
-        version = self.read_reg(
-            self._reg(McuPage.SYSTEM, SystemReg.MAP_MAJOR), size=2
-        )
-        if version[0] != MCU_MAP_MAJOR:
+        major = self._read_u8(McuPage.SYSTEM, SystemReg.MAP_MAJOR)
+        minor = self._read_u8(McuPage.SYSTEM, SystemReg.MAP_MINOR)
+        if major != MCU_MAP_MAJOR:
             raise RuntimeError(
-                f"unsupported MCU register-map major version {version[0]}"
+                f"unsupported MCU register-map major version {major}"
             )
-        return version[0], version[1]
+        return major, minor
 
     @property
     def system_info(self) -> McuSystemInfo:
@@ -289,7 +334,9 @@ class MCU(Device):
             health=McuHealth(self._read_u32(page, SystemReg.HEALTH_SUMMARY)),
             board_id=self._read_u32(page, SystemReg.BOARD_ID),
             uptime_seconds=self._read_u32(page, SystemReg.UPTIME_SECONDS),
-            reset_cause=self._read_u32(page, SystemReg.RESET_CAUSE),
+            reset_cause=McuResetCause(
+                self._read_u32(page, SystemReg.RESET_CAUSE)
+            ),
             git_version=self.read_ascii(
                 self._reg(page, SystemReg.GIT_VERSION), 20
             ),
@@ -363,10 +410,9 @@ class MCU(Device):
         )
         temp_block = self.read_block(self._reg(page, AlarmReg.TEMP_STATUS), 8)
         temp_status, temp_warn_latch = struct.unpack("<II", temp_block)
-        voltage_block = self.read_block(
-            self._reg(page, AlarmReg.VOLTAGE_ALARM_GENERAL), 3
-        )
-        voltage_general, voltage_f1, voltage_f2 = voltage_block
+        voltage_general = self._read_u8(page, AlarmReg.VOLTAGE_ALARM_GENERAL)
+        voltage_f1 = self._read_u8(page, AlarmReg.VOLTAGE_ALARM_F1)
+        voltage_f2 = self._read_u8(page, AlarmReg.VOLTAGE_ALARM_F2)
         return AlarmSnapshot(
             temp_task_state,
             voltage_task_state,

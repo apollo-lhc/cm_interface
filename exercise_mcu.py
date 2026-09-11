@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """
 Exercise the command-module MCU's ProgCom register area (``MC 0``) on real
 hardware, following ``MCU_REGISTER_MAP.md``.
@@ -19,7 +19,7 @@ import sys
 
 from cm_interface.errors import CMError
 from cm_interface.registry import Registry
-from cm_interface.device.mcu import McuControlCommand
+from cm_interface.device.mcu import McuControlCommand, describe_reset_cause
 
 
 EXPECTED_HARDWARE_ERRORS = (CMError, OSError, TimeoutError, ValueError)
@@ -55,6 +55,8 @@ def exercise_system(mcu):
         print(f"  board id:         0x{info.board_id:08X}")
         print(f"  uptime:           {info.uptime_seconds} s")
         print(f"  reset cause:      0x{info.reset_cause:08X}")
+        for detail in describe_reset_cause(info.reset_cause):
+            print(f"    - {detail}")
         print(f"  git version:      {info.git_version!r}")
         print(f"  capabilities:     {info.capabilities!r}")
         print(f"  health:           {info.health!r}")

@@ -12,6 +12,7 @@ from cm_interface.device.mcu import (
     McuCapability,
     McuControlCommand,
     McuPage,
+    McuResetCause,
     PerSupplyState,
     PersistentLogInfoReg,
     PowerFlags,
@@ -19,6 +20,7 @@ from cm_interface.device.mcu import (
     PowerReg,
     SystemReg,
     TemperatureAlarmBit,
+    describe_reset_cause,
 )
 
 
@@ -58,6 +60,9 @@ class McuTest(unittest.TestCase):
                 int(McuCapability.SYSTEM | McuCapability.ADC).to_bytes(4, "little"))
         mcu.put(McuPage.SYSTEM, SystemReg.BOARD_ID, (5186).to_bytes(4, "little"))
         mcu.put(McuPage.SYSTEM, SystemReg.UPTIME_SECONDS, (123).to_bytes(4, "little"))
+        reset_cause = McuResetCause.POR | McuResetCause.SW
+        mcu.put(McuPage.SYSTEM, SystemReg.RESET_CAUSE,
+                int(reset_cause).to_bytes(4, "little"))
         mcu.put(McuPage.SYSTEM, SystemReg.GIT_VERSION, b"v1.2.3\0" + bytes(13))
 
         info = mcu.system_info
@@ -65,8 +70,23 @@ class McuTest(unittest.TestCase):
         self.assertEqual((info.map_major, info.map_minor), (1, 2))
         self.assertEqual(info.hardware_revision, 3)
         self.assertEqual(info.board_id, 5186)
+        self.assertEqual(info.reset_cause, reset_cause)
+        self.assertEqual(
+            describe_reset_cause(info.reset_cause),
+            ("POR: power-on reset", "SW: software-requested system reset"),
+        )
         self.assertEqual(info.git_version, "v1.2.3")
         self.assertTrue(info.capabilities & McuCapability.ADC)
+
+    def test_reset_cause_reports_unknown_bits(self):
+        cause = McuResetCause(int(McuResetCause.WDT0) | (1 << 7))
+        self.assertEqual(
+            describe_reset_cause(cause),
+            (
+                "WDT0: Watchdog Timer 0 timed out",
+                "UNKNOWN: reserved/unrecognized bits 0x00000080",
+            ),
+        )
 
     def test_adc_binary16_and_nan(self):
         mcu = MemoryMCU()
