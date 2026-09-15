@@ -9,8 +9,9 @@ This document provides comprehensive, ready-to-use examples for controlling Si53
 3. [Firefly CDR Control](#firefly-cdr-control)
 4. [Clock Monitoring](#clock-monitoring)
 5. [LGA80D Power Management](#lga80d-power-management)
-6. [Register Access Patterns](#register-access-patterns)
-7. [Complete System Status](#complete-system-status)
+6. [MCU Power Control and Fault Recovery](#mcu-power-control-and-fault-recovery)
+7. [Register Access Patterns](#register-access-patterns)
+8. [Complete System Status](#complete-system-status)
 
 ---
 
@@ -316,6 +317,75 @@ for name, lga in reg.lga80d.items():
 LGA80D Power Supply Status:
 
 3V3/1V8     :   1.80 V, OK, STATUS_WORD=0x0000
+```
+
+---
+
+## MCU Power Control and Fault Recovery
+
+The MCU Control page can assert or release the **ProgCom power inhibit**. It
+does not force power on: releasing the inhibit only permits power when the
+external/Zynq power-enable request is also high. These are live hardware
+operations; use them only when it is safe to interrupt board power.
+
+```python
+import time
+
+from cm_interface.registry import Registry
+from cm_interface.device.mcu import McuControlCommand, PowerFlags
+
+reg = Registry(dev_path="/dev/ttyUL4")
+mcu = reg.get_mcu()
+
+
+def power_off():
+    """Request board power-off by asserting the ProgCom inhibit."""
+    mcu.send_control(McuControlCommand.ASSERT_PROGCOM_POWER_INHIBIT)
+
+
+def power_on():
+    """Release the inhibit; this cannot override external power disable."""
+    mcu.send_control(McuControlCommand.RELEASE_PROGCOM_POWER_INHIBIT)
+
+
+def has_power_fault():
+    """Check both the aggregate latch and the individual supply bitmap."""
+    power = mcu.read_power()
+    return bool(
+        (power.flags & PowerFlags.POWER_FAULT_LATCH) or power.failed_mask
+    )
+
+
+def clear_power_fault():
+    """Clear a detected fault and confirm that firmware has processed it."""
+    if not has_power_fault():
+        print("No power fault is latched.")
+        return True
+
+    mcu.send_control(McuControlCommand.CLEAR_POWER_FAULT)
+
+    # The MCU power task processes Control commands asynchronously.
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        if not has_power_fault():
+            print("Power fault cleared.")
+            return True
+        time.sleep(0.1)
+
+    print("Power fault remains latched.")
+    return False
+```
+
+`CLEAR_POWER_FAULT` clears the firmware latch; it does not repair a physical
+power-good failure. If the underlying fault remains, the MCU can immediately
+assert the fault again. Keep the power inhibit asserted while investigating a
+fault, and release it only after the cause is resolved.
+
+The same operations are available from the hardware exercise script:
+
+```bash
+./exercise_mcu.py --power-cycle --yes
+./exercise_mcu.py --send-control CLEAR_POWER_FAULT
 ```
 
 ---

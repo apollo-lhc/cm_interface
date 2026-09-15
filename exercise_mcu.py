@@ -7,15 +7,27 @@ Reads every implemented page (System, Power, Alarm, ADC) and reports each
 one independently, so a page the deployed firmware doesn't yet implement
 (``invalid MCU page``) doesn't stop the rest. The deferred persistent-log
 pages are read as a best effort. The write-only Control page is only
-touched if you explicitly pass ``--send-control`` and confirm.
+touched if you explicitly pass ``--send-control`` or ``--power-cycle`` and
+confirm.
 
 Usage:
     ./exercise_mcu.py [--dev-path /dev/ttyUL4] [--debug]
     ./exercise_mcu.py --send-control CLEAR_ALARM_LATCHES [--yes]
+    ./exercise_mcu.py --power-cycle [--yes]
 """
 
 import argparse
+import os
 import sys
+import time
+
+# Permit direct execution from either the repository root (via its symlink)
+# or this package directory, without requiring an installation step.
+if not __package__:
+    _package_dir = os.path.dirname(os.path.realpath(__file__))
+    _package_parent = os.path.dirname(_package_dir)
+    if _package_parent not in sys.path:
+        sys.path.insert(0, _package_parent)
 
 from cm_interface.errors import CMError
 from cm_interface.registry import Registry
@@ -132,18 +144,50 @@ def send_control(mcu, command_name, assume_yes):
         print(f"  ⚠ {_format_error(exc)}")
 
 
+def power_cycle(mcu, assume_yes):
+    """Inhibit board power for 15 seconds, then always release the inhibit."""
+    if not assume_yes:
+        reply = input(
+            "Assert the MCU ProgCom power inhibit for 15 seconds, then release "
+            "it? [y/N] "
+        )
+        if reply.strip().lower() != "y":
+            print("Aborted.")
+            return
+
+    print("Asserting ProgCom power inhibit.")
+    try:
+        mcu.send_control(McuControlCommand.ASSERT_PROGCOM_POWER_INHIBIT)
+        print("Power inhibited; waiting 15 seconds.")
+        time.sleep(15)
+    except EXPECTED_HARDWARE_ERRORS as exc:
+        print(f"  ⚠ {_format_error(exc)}")
+    finally:
+        # A timeout may occur after firmware has accepted ASSERT, so always
+        # attempt RELEASE after issuing it, including on Ctrl-C during sleep.
+        try:
+            mcu.send_control(McuControlCommand.RELEASE_PROGCOM_POWER_INHIBIT)
+            print("Released ProgCom power inhibit.")
+        except EXPECTED_HARDWARE_ERRORS as exc:
+            print(f"  ⚠ Could not release ProgCom power inhibit: {_format_error(exc)}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dev-path", default="/dev/ttyUL4",
                          help="serial device path (default: /dev/ttyUL4)")
     parser.add_argument("--debug", action="store_true",
                          help="log raw UART transactions to stdout")
-    parser.add_argument("--send-control", metavar="COMMAND",
-                         choices=[c.name for c in McuControlCommand],
-                         help="send one write-only Control-page command instead "
-                              "of reading pages")
+    operation = parser.add_mutually_exclusive_group()
+    operation.add_argument("--send-control", metavar="COMMAND",
+                           choices=[c.name for c in McuControlCommand],
+                           help="send one write-only Control-page command instead "
+                           "of reading pages")
+    operation.add_argument("--power-cycle", action="store_true",
+                           help="assert the ProgCom power inhibit for 15 seconds, "
+                           "then release it")
     parser.add_argument("--yes", action="store_true",
-                         help="skip the confirmation prompt for --send-control")
+                        help="skip the confirmation prompt for a control action")
     args = parser.parse_args()
 
     reg = Registry(dev_path=args.dev_path,
@@ -152,6 +196,9 @@ def main():
 
     if args.send_control:
         send_control(mcu, args.send_control, args.yes)
+        return
+    if args.power_cycle:
+        power_cycle(mcu, args.yes)
         return
 
     exercise_system(mcu)
