@@ -1,63 +1,77 @@
 {
-  "device": "Firefly 12-channel (ECUO-B12 / CERN-B-T12/R12)",
-  "description": "12-channel Firefly optical transceiver with per-channel monitoring and control",
-  "datasheet": "CERN_Back_End_x12_FireFly_User_Manual.pdf, Firefly Manual ECUO 25G_28G x4.pdf",
+  "device": "Firefly standard 12-channel (ECUO-B12), Tx and Rx",
+  "description": "12-channel Firefly optical transceiver with per-channel monitoring and control. Tx and Rx are separate physical TWI devices with independent register spaces at the addresses below (see cm_interface.device.firefly.FireflyTx / FireflyRx) -- this file documents both since they share the same manufacturer datasheet and byte layout. CERN-B variants use a different map: see firefly_cernb.json.",
+  "datasheet": "ECUO 25G x12 Rev 4 Data Sheet.pdf",
   "channel_count": 12,
-  "uart_address_range": "0x20-0x3F (I2C/SMBus lower page)",
+  "uart_address_range": "device_number = uart_address - 0x20 (a synthetic MCU ProgCom index, NOT the physical I2C/TWI address -- see X12 Table 9 for the real TWI addresses, e.g. 0x50/0x54)",
   "interface": "Two-Wire Interface (TWI/I2C) with interrupt (Int_L)",
-  "lower_page_registers": {
+  "common_registers": {
     "STATUS": {"addr": "0x02", "size": 1, "access": "RO", "bits": {"7-2": "Reserved", "1": "Int_L Status", "0": "Data_Not_Ready"}},
-    "STATUS_SUMMARY": {"addr": "0x06", "size": 1, "access": "RO", "bits": {"7-6": "Reserved", "5": "Fault Summary", "4-2": "Reserved", "1": "Module Alarm Summary", "0": "Init Complete"}},
-    "TX_FAULT_LATCH": {"addr": "0x09", "size": 2, "access": "RO", "description": "Latched TX fault flags (12 channels, bits 0-11)"},
-    "TEMP_ALARM_LATCH": {"addr": "0x11", "size": 1, "access": "RO", "bits": {"7": "Temp High", "6": "Temp Low", "5-0": "Reserved"}},
-    "VCC_ALARM_LATCH": {"addr": "0x12", "size": 1, "access": "RO", "bits": {"7": "VCC High", "6": "VCC Low", "5-0": "Reserved"}},
     "TEMP_MONITOR": {"addr": "0x16", "size": 1, "access": "RO", "description": "Internal temperature, signed 8-bit (°C), accuracy ±3°C"},
     "VCC_MONITOR": {"addr": "0x1A", "size": 2, "access": "RO", "description": "Supply voltage, 16-bit unsigned (100 µV LSB), range 0-6.55V, accuracy ±3%"},
     "ELAPSED_TIME": {"addr": "0x26", "size": 2, "access": "RO", "description": "Operating time, 16-bit unsigned (2 hours LSB), range 0-131,070 hours"},
-    "RESET": {"addr": "0x33", "size": 1, "access": "WO", "description": "Reset all registers (write 0x01)"},
-    "TX_DISABLE": {"addr": "0x34", "size": 2, "access": "RW", "description": "Per-channel TX disable (bits 0-11 for CH0-CH11)"},
-    "TX_POLARITY_INV": {"addr": "0x3A", "size": 2, "access": "RW", "description": "Per-channel TX polarity invert"},
-    "RX_DISABLE": {"addr": "0x36", "size": 2, "access": "RW", "description": "Per-channel RX disable (bits 0-11)"},
-    "RX_OUTPUT_DISABLE": {"addr": "0x38", "size": 2, "access": "RW", "description": "Per-channel RX output disable"},
-    "RX_OUTPUT_AMP": {"addr": "0x3E", "size": 6, "access": "RW", "description": "Per-channel RX output amplitude (6 bytes for 4 channels in x4, or 12 bytes for x12)"},
-    "RX_DEEMPHASIS": {"addr": "0x44", "size": 6, "access": "RW", "description": "Per-channel RX de-emphasis"},
-    "TX_FAULT_MASK": {"addr": "0x61", "size": 2, "access": "RW", "description": "Mask TX fault interrupts (1 = mask)"},
-    "TEMP_ALARM_MASK": {"addr": "0x69", "size": 1, "access": "RW", "description": "Mask temperature alarms (default 0x01 = masked)"},
-    "VCC_ALARM_MASK": {"addr": "0x6A", "size": 1, "access": "RW", "description": "Mask VCC alarms (default 0x01 = masked)"},
-    "RX_LOS_LATCH": {"addr": "0x07", "size": 2, "access": "RO", "description": "Latched RX Loss of Signal (12 channels)"},
-    "RX_LOS_MASK": {"addr": "0x5F", "size": 2, "access": "RW", "description": "Mask RX LOS interrupts"},
-    "FIRMWARE_VER": {"addr": "0x6F", "size": 3, "access": "RO", "description": "Firmware version (major.minor.patch)"},
-    "EEPROM_REV": {"addr": "0x6E", "size": 1, "access": "RO", "description": "EEPROM revision"},
+    "RESET": {"addr": "0x33", "size": 1, "access": "RW", "description": "Writing 0x01 defaults all registers. Datasheet marks this RW, not write-only."},
     "PAGE_SELECT": {"addr": "0x7F", "size": 1, "access": "RW", "description": "Upper page selector (0x00-0x0B)"}
+  },
+  "tx_registers": {
+    "STATUS_SUMMARY": {"addr": "0x06", "size": 1, "access": "RO", "bits": {"7": "TX LOS summary", "6-5": "Reserved", "1": "Module Alarm Summary", "0": "Init Complete (resets to 0 on read)"}, "description": "Table 12. Bit 0 is cleared by reading this byte."},
+    "TX_FAULT_LATCH": {"addr": "0x09", "size": 2, "access": "RO", "description": "Latched TX fault flags (12 channels, bits 0-11). Latched bits clear on read or module reset (may re-assert immediately if the fault persists and its mask bit is unset)."},
+    "TEMP_ALARM_LATCH": {"addr": "0x11", "size": 1, "access": "RO", "bits": {"7": "Temp High", "6": "Temp Low", "5-0": "Reserved"}},
+    "VCC_ALARM_LATCH": {"addr": "0x12", "size": 1, "access": "RO", "bits": {"7": "VCC High", "6": "VCC Low", "5-0": "Reserved"}},
+    "TX_DISABLE": {"addr": "0x34", "size": 2, "access": "RW", "description": "Per-channel TX disable (bits 0-11 for CH0-CH11, 0-based datasheet numbering; the Python API numbers channels 1-12)"},
+    "TX_POLARITY_INV": {"addr": "0x3A", "size": 2, "access": "RW", "description": "Per-channel TX polarity invert"},
+    "CDR_ENABLE": {"addr": "0x4A", "size": 2, "access": "RW", "description": "Bytes 74-75 (Tables 22/45). Low nibble of byte 74 (0x4A) = channels 8-11 (0-based); byte 75 (0x4B) = channels 0-7. High nibble of byte 74 is reserved and must be preserved on write."},
+    "CDR_LOL_STATUS": {"addr": "0x14", "size": 2, "access": "RO", "description": "Bytes 20-21 (Tables 17/39), same channel/nibble layout as CDR_ENABLE. 1 = loss of lock for that channel."},
+    "CDR_LOL_MASK": {"addr": "0x6C", "size": 2, "access": "RW", "description": "Bytes 108-109 (Tables 27/50), same channel/nibble layout as CDR_ENABLE."},
+    "TX_FAULT_MASK": {"addr": "0x61", "size": 2, "access": "RW", "description": "Mask TX fault interrupts (1 = mask)"},
+    "TEMP_ALARM_MASK": {"addr": "0x69", "size": 1, "access": "RW", "bits": {"7": "Mask temp high", "6": "Mask temp low", "5-0": "Reserved"}, "description": "Default 0b0 (unmasked); Tables 25/26. Preserve unrelated bits on write."},
+    "VCC_ALARM_MASK": {"addr": "0x6A", "size": 1, "access": "RW", "bits": {"7": "Mask VCC high", "6": "Mask VCC low", "5-0": "Reserved"}, "description": "Default 0b0 (unmasked); Tables 25/26. Preserve unrelated bits on write."}
+  },
+  "rx_registers": {
+    "STATUS_SUMMARY": {"addr": "0x06", "size": 1, "access": "RO", "bits": {"7": "Reserved", "6": "LOS summary", "5": "Fault Summary", "4-3": "Reserved", "2": "Low-power summary", "1": "Module Alarm Summary", "0": "Init Complete (resets to 0 on read)"}, "description": "Table 34. Bit 0 is cleared by reading this byte."},
+    "RX_LOS_LATCH": {"addr": "0x07", "size": 2, "access": "RO", "description": "Latched RX Loss of Signal (12 channels). Latched bits clear on read or module reset."},
+    "TEMP_ALARM_LATCH": {"addr": "0x11", "size": 1, "access": "RO", "bits": {"7": "Temp High", "6": "Temp Low", "5-0": "Reserved"}},
+    "VCC_ALARM_LATCH": {"addr": "0x12", "size": 1, "access": "RO", "bits": {"7": "VCC High", "6": "VCC Low", "5-0": "Reserved"}},
+    "RX_DISABLE": {"addr": "0x34", "size": 2, "access": "RW", "description": "Per-channel RX disable (bits 0-11, 0-based). Table 40. NOT the same as RX_OUTPUT_DISABLE."},
+    "RX_OUTPUT_DISABLE": {"addr": "0x36", "size": 2, "access": "RW", "description": "Per-channel electrical RX output disable. Table 41. A successful write here does not by itself prove the receiver channel (RX_DISABLE) was disabled."},
+    "RX_OUTPUT_AMP": {"addr": "0x3E", "size": 6, "access": "RW", "description": "Per-channel RX output amplitude, Table 43: 6 bytes packing two channel nibbles per byte (12 channels total, not 12 bytes)."},
+    "RX_DEEMPHASIS": {"addr": "0x44", "size": 6, "access": "RW", "description": "Per-channel RX de-emphasis, 6 bytes packing two channel nibbles per byte."},
+    "CDR_ENABLE": {"addr": "0x4A", "size": 2, "access": "RW", "description": "Bytes 74-75 (Tables 22/45). Low nibble of byte 74 (0x4A) = channels 8-11 (0-based); byte 75 (0x4B) = channels 0-7. High nibble of byte 74 is reserved and must be preserved on write."},
+    "CDR_LOL_STATUS": {"addr": "0x14", "size": 2, "access": "RO", "description": "Bytes 20-21 (Tables 17/39), same channel/nibble layout as CDR_ENABLE. 1 = loss of lock for that channel."},
+    "CDR_LOL_MASK": {"addr": "0x6C", "size": 2, "access": "RW", "description": "Bytes 108-109 (Tables 27/50), same channel/nibble layout as CDR_ENABLE."},
+    "RX_LOS_MASK": {"addr": "0x5F", "size": 2, "access": "RW", "description": "Mask RX LOS interrupts"},
+    "TEMP_ALARM_MASK": {"addr": "0x69", "size": 1, "access": "RW", "bits": {"7": "Mask temp high", "6": "Mask temp low", "5-0": "Reserved"}, "description": "Default 0b0 (unmasked); Tables 25/26. Preserve unrelated bits on write."},
+    "VCC_ALARM_MASK": {"addr": "0x6A", "size": 1, "access": "RW", "bits": {"7": "Mask VCC high", "6": "Mask VCC low", "5-0": "Reserved"}, "description": "Default 0b0 (unmasked); Tables 25/26. Preserve unrelated bits on write."}
   },
   "upper_pages": {
     "0x00": {
       "description": "Vendor ID and capabilities (read-only)",
       "MAX_TEMP": {"addr": "0x84", "size": 1, "access": "RO", "description": "Max recommended case temp (°C, signed, default 0x46=70°C)"},
-      "VENDOR_NAME": {"addr": "0x98", "size": 10, "access": "RO", "description": "Vendor name (ASCII, left-justified, 'Samtec Inc')"},
+      "VENDOR_NAME": {"addr": "0x98", "size": 10, "access": "RESERVED", "description": "Reserved on this Rev. 4 map (Tables 28/51). NOT a valid vendor-name field for the standard x12 variant -- valid only on CERN-B (see firefly_cernb.json)."},
       "VENDOR_PN": {"addr": "0xAB", "size": 16, "access": "RO", "description": "Vendor part number (ASCII)"},
       "VENDOR_SN": {"addr": "0xBD", "size": 10, "access": "RO", "description": "Vendor serial number (ASCII)"}
     },
     "0x01": {
-      "description": "Alarm thresholds (factory preset, read-only)",
-      "TEMP_HIGH_THRESH": {"addr": "0x80", "size": 1, "access": "RO", "description": "Temp high alarm (°C, signed, default 0x50=80°C)"},
+      "description": "Alarm thresholds (factory preset) and RX optical power monitoring",
+      "TEMP_HIGH_THRESH": {"addr": "0x80", "size": 1, "access": "RO", "description": "Temp high alarm (°C, signed, default 0x55=85°C)"},
       "TEMP_LOW_THRESH": {"addr": "0x82", "size": 1, "access": "RO", "description": "Temp low alarm (°C, signed, default 0x00=0°C)"},
       "VCC_HIGH_THRESH": {"addr": "0x90", "size": 2, "access": "RO", "description": "VCC high alarm (100 µV, default 0x875A=3.465V)"},
-      "VCC_LOW_THRESH": {"addr": "0x92", "size": 2, "access": "RO", "description": "VCC low alarm (100 µV, default 0x7A76=3.135V)"}
+      "VCC_LOW_THRESH": {"addr": "0x92", "size": 2, "access": "RO", "description": "VCC low alarm (100 µV, default 0x7A76=3.135V)"},
+      "RX_OPTICAL_POWER": {"addr": "0xCE", "size": 24, "access": "RO", "description": "Table 52. 12 channels x 2 bytes, unsigned big-endian, 0.1 µW/count. Channel order is DESCENDING: bytes 206-207 (0xCE-CF) = Rx11 .. bytes 228-229 (0xE4-E5) = Rx00. Not dBm; convert separately if needed."}
     },
     "0x02": {
       "description": "TWI address configuration",
-      "TWI_ADDRESS": {"addr": "0xFF", "size": 1, "access": "RW", "description": "Two-wire interface address (non-volatile, default 0xA0)"}
+      "TWI_ADDRESS": {"addr": "0xFF", "size": 1, "access": "RW", "description": "Two-wire interface secondary address (non-volatile, default 0xFF)"}
     },
     "0x0B": {
       "description": "Time-at-temperature monitors (end-of-life prediction)",
-      "TEMP_BIN_BASE": {"addr": "0x80", "size": 60, "access": "RO", "description": "20 temperature bins × 3 bytes (24-bit counters, 5-min LSB)"},
-      "PEAK_TEMP": {"addr": "0xC2", "size": 1, "access": "RO", "description": "Peak recorded case temperature (°C, unsigned)"}
+      "TEMP_BIN_BASE": {"addr": "0x80", "size": 66, "access": "RO", "description": "22 temperature bins x 3 bytes (24-bit counters, 5-min LSB), bytes 128-193 (Tables 31/54)"},
+      "PEAK_TEMP": {"addr": "0xC2", "size": 1, "access": "RO", "description": "Peak recorded case temperature (°C, unsigned), byte 194 immediately following the bin array"}
     }
   },
   "channel_monitoring": {
     "tx_power": "Per-channel laser bias current and output power monitoring (implementation-dependent)",
-    "rx_power": "Per-channel received optical power (dBm scaled)",
+    "rx_power": "See upper_pages.0x01.RX_OPTICAL_POWER for the actual field map, units and descending channel order",
     "los": "Loss of signal detection per channel"
   },
   "notes": [
@@ -66,6 +80,8 @@
     "Lower page 0x00-0x7F always directly accessible",
     "Upper pages selected via PAGE_SELECT byte at 0x7F",
     "Temperature range: 0°C to 70°C (commercial), -40°C to +85°C (extended)",
-    "Int_L pin asserts on unmasked faults/alarms"
+    "Int_L pin asserts on unmasked faults/alarms",
+    "Latched fault/alarm/status bits clear on read or module reset, and may re-assert immediately if the underlying condition persists and its mask bit is unset -- a plain RO access note does not capture this.",
+    "Tx and Rx are separate physical TWI devices (separate uart_address / device_number each). This file documents both directions' registers together because they share one datasheet; do not assume a single device exposes both tx_registers and rx_registers."
   ]
 }

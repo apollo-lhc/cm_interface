@@ -1,8 +1,16 @@
+import time
 from enum import IntEnum
 
 from ..compat import dataclass
 from .base import Device
 from ..utils import decode_linear11, decode_linear16u, encode_linear16u
+
+# Time to wait after triggering a snapshot capture (SNAPSHOT_CONTROL=0x01)
+# before the device has copied its live registers into the readable snapshot
+# buffer. Modeled on the MCU firmware's snapdump_locked() in LocalTasks.c,
+# which found ~20ms insufficient (returned a zero-length block read) and
+# settled on twice that.
+SNAPSHOT_CAPTURE_DELAY_S = 0.04
 
 
 @dataclass(frozen=True)
@@ -29,10 +37,18 @@ class LGA80DStatus:
     cml: int
     manufacturer: int
 
+    # STATUS_WORD bits that indicate normal/intentional state, not a fault:
+    # bit 6 (OFF) is asserted whenever the output isn't providing power
+    # "regardless of the reason, including simply not being enabled", and
+    # bit 11 (POWER_GOOD#) is a signal-state bit. Both must be excluded from
+    # the fault summary or an intentionally-disabled, healthy unit reports
+    # has_faults=True.
+    _STATUS_WORD_NON_FAULT_BITS = (1 << 6) | (1 << 11)
+
     @property
     def has_faults(self) -> bool:
         return any((
-            self.word,
+            self.word & ~self._STATUS_WORD_NON_FAULT_BITS,
             self.vout,
             self.iout,
             self.input,
@@ -60,6 +76,7 @@ class LGA80DReg(IntEnum):
     READ_TEMPERATURE_1 = 0x8D
     READ_TEMPERATURE_3 = 0x8F
     READ_FREQUENCY = 0x95
+    SNAPSHOT_CONTROL = 0xF3
 
 class LGA80D(Device):
     """Representation of an LGA80D device.
@@ -163,3 +180,33 @@ class LGA80D(Device):
         """Set the commanded voltage for one output page."""
         reg = self._paged_reg(LGA80DReg.VOUT_COMMAND, page)
         self.write_reg(reg, encode_linear16u(value))
+
+    def reset_snapshot(self, page: int = 0) -> None:
+        """Reset the snapshot history register for one output page.
+
+        Modeled on the MCU firmware's ``snapdump_locked()``
+        (LocalTasks.c): trigger a capture (``SNAPSHOT_CONTROL=0x01``),
+        wait for the device to copy its live registers into the readable
+        snapshot buffer, then reset the snapshot history
+        (``SNAPSHOT_CONTROL=0x03``). The firmware's own comment on this
+        exact sequence: "This will fail if the device is on" -- the
+        output for this page must be off before calling this.
+
+        This method has no visibility into board-level power sequencing
+        and does not check that precondition itself. Prefer
+        :meth:`Registry.reset_all_lga80d_snapshots`, which checks the MCU
+        power state machine before calling this.
+        """
+        reg = self._paged_reg(LGA80DReg.SNAPSHOT_CONTROL, page)
+        self.write_reg(reg, bytes([0x01]))
+        time.sleep(SNAPSHOT_CAPTURE_DELAY_S)
+        self.write_reg(reg, bytes([0x03]))
+
+    def reset_all_snapshots(self) -> None:
+        """Reset the snapshot history register for both output pages.
+
+        Same caveat as :meth:`reset_snapshot`: this does not itself check
+        that the outputs are off.
+        """
+        for page in (0, 1):
+            self.reset_snapshot(page)

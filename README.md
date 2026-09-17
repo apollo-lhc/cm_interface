@@ -197,7 +197,23 @@ known no-load behavior from a reported supply fault.
 
 `read_status()` returns an `LGA80DStatus` object, not an integer. Its `word`,
 `vout`, `iout`, `input`, `temperature`, `cml`, and `manufacturer` fields expose
-the raw PMBus status registers; `has_faults` is true if any are nonzero.
+the raw PMBus status registers; `has_faults` is true if any of the category
+bytes are nonzero, or if `word` has any bit set other than `STATUS_WORD` bits
+6 (`OFF`) and 11 (`POWER_GOOD#`) -- those two are asserted for normal,
+intentionally-disabled states and are excluded so a healthy but powered-off
+supply doesn't read as faulted.
+
+`Registry.reset_all_lga80d_snapshots(force=True)` resets the snapshot-history
+register on every configured LGA80D (modeled on the MCU firmware's `sn_all`
+command). It refuses to do anything unless `force=True` is passed, and even
+then unconditionally checks the MCU's power state machine reports exactly
+`POWER_OFF` first, raising `RuntimeError` otherwise -- `force` cannot skip
+that check, it only unlocks the attempt, since the reset only succeeds while
+a supply's output is off. Per-device primitives (`LGA80D.reset_snapshot(page)`
+/ `reset_all_snapshots()`) are also available directly if you need to reset
+just one supply; they run unconditionally and cannot verify board-level power
+state themselves, so prefer the `Registry` method unless you've confirmed
+that precondition some other way.
 
 ## Standard board configurations
 The repository ships two ready‑to‑use presets that match the real hardware layouts described in `design.md`.

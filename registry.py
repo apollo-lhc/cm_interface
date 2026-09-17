@@ -2,7 +2,7 @@ from .uart import UART
 from .device.si5395 import Clock
 from .device.firefly import Firefly12, Firefly4, FireflyTx, FireflyRx, FireflyTxCern, FireflyRxCern, Firefly
 from .device.lga80d import LGA80D
-from .device.mcu import MCU
+from .device.mcu import MCU, PowerFsmState
 from .device.fpga import FPGA
 from .core_config import CORE_CONFIG
 from .firefly_presets import FIREfly_PRESETS, BoardSetup
@@ -79,11 +79,17 @@ class Registry:
 
         Only creates devices for locations explicitly defined in the config.
         Supports types: "4" (4-channel XCVR), "Tx", "Rx", "both" (separate Tx+Rx).
+
+        Each location's UART device index is taken from the preset's explicit
+        ``wire_index`` map (not from dict-iteration order), so reordering or
+        editing ``firefly_cfg`` cannot silently shift another location's wire
+        address.
         """
-        # firefly_layout now contains both "firefly" and "variant" keys
+        # firefly_layout now contains "firefly", "variant" and "wire_index" keys
         firefly_cfg = self.firefly_layout.get("firefly", {})
         variant_map = self.firefly_layout.get("variant", {})
-        
+        wire_index = self.firefly_layout.get("wire_index", {})
+
         def pick_class(base_cls, key):
             var = variant_map.get(key)
             if var == "cern":
@@ -92,65 +98,58 @@ class Registry:
                 if base_cls is FireflyRx:
                     return FireflyRxCern
             return base_cls
-        
+
+        def resolve_index(key):
+            try:
+                return wire_index[key]
+            except KeyError:
+                raise ValueError(
+                    f"preset location {key!r} has no pinned wire_index entry"
+                ) from None
+
         base = 0x20
-        idx = 0
-        
+        seen_indices = {}
+
+        def claim_index(key, idx):
+            if idx in seen_indices:
+                raise ValueError(
+                    f"wire_index collision: {key!r} and {seen_indices[idx]!r} "
+                    f"both claim index {idx}"
+                )
+            seen_indices[idx] = key
+
         # Only iterate over explicitly configured locations
         for loc, dev_type in firefly_cfg.items():
             if dev_type == "4":
                 # 4-channel transceiver
+                idx = resolve_index(loc)
+                claim_index(loc, idx)
                 cls = pick_class(Firefly4, loc)
                 self.fireflies[loc] = cls(self.uart, address=base + idx, location=loc)
-                idx += 1
             elif dev_type == "Tx":
                 # Tx-only
+                idx = resolve_index(loc)
+                claim_index(loc, idx)
                 cls = pick_class(FireflyTx, loc)
                 self.fireflies[loc] = cls(self.uart, address=base + idx, location=loc)
-                idx += 1
             elif dev_type == "Rx":
                 # Rx-only
+                idx = resolve_index(loc)
+                claim_index(loc, idx)
                 cls = pick_class(FireflyRx, loc)
                 self.fireflies[loc] = cls(self.uart, address=base + idx, location=loc)
-                idx += 1
             elif dev_type == "both":
                 # Both Tx and Rx (separate devices, e.g., CERN-B variants)
                 tx_key = f"{loc}_Tx"
                 rx_key = f"{loc}_Rx"
+                tx_idx = resolve_index(tx_key)
+                rx_idx = resolve_index(rx_key)
+                claim_index(tx_key, tx_idx)
+                claim_index(rx_key, rx_idx)
                 tx_cls = pick_class(FireflyTx, tx_key)
                 rx_cls = pick_class(FireflyRx, rx_key)
-                self.fireflies[tx_key] = tx_cls(self.uart, address=base + idx, location=loc)
-                idx += 1
-                self.fireflies[rx_key] = rx_cls(self.uart, address=base + idx, location=loc)
-                idx += 1
-    def _populate_fireflies_generic(self):
-        """Populate firefly devices using the original generic mapping.
-
-        Creates four full‑duplex transceiver objects (F1_5, F1_6, F2_5, F2_6)
-        and split Tx/Rx objects for the remaining ports.
-        """
-        """Original generic firefly population (20 devices, 4 transceivers,
-        16 split Tx/Rx)."""
-        xcvr_locations = {"F1_5", "F1_6", "F2_5", "F2_6"}
-        base = 0x20
-        idx = 0
-        for mod in (1, 2):
-            for port in range(1, 7):
-                loc = f"F{mod}_{port}"
-                if loc in xcvr_locations:
-                    self.fireflies[loc] = Firefly4(self.uart,
-                                                   address=base + idx,
-                                                   location=loc)
-                    idx += 1
-                else:
-                    self.fireflies[f"{loc}_Tx"] = FireflyTx(self.uart,
-                                                            address=base + idx,
-                                                            location=loc)
-                    idx += 1
-                    self.fireflies[f"{loc}_Rx"] = FireflyRx(self.uart,
-                                                            address=base + idx,
-                                                            location=loc)
-                    idx += 1
+                self.fireflies[tx_key] = tx_cls(self.uart, address=base + tx_idx, location=loc)
+                self.fireflies[rx_key] = rx_cls(self.uart, address=base + rx_idx, location=loc)
 
     # Helper look‑ups ---------------------------------------------------
     def get_clock(self, name: str) -> Clock:
@@ -178,3 +177,64 @@ class Registry:
     def get_fpga(self, name: str) -> FPGA:
         """Return the raw generic-interface object for ``F1`` or ``F2``."""
         return self.fpgas[name]
+
+    # ---------------------------------------------------------------------
+    # LGA80D snapshot reset
+    # ---------------------------------------------------------------------
+    def reset_all_lga80d_snapshots(self, force: bool = False) -> None:
+        """Reset the snapshot history registers on every configured LGA80D.
+
+        Modeled on the MCU firmware's ``sn_all`` command
+        (commands/PowerCommands.c), which loops over every configured
+        supply and both PMBus pages, capturing and then resetting each
+        one's snapshot register.
+
+        The snapshot-reset command only succeeds while a supply's output
+        is off (confirmed by the firmware's own comment on this exact
+        sequence in ``snapdump_locked()``: "This will fail if the device
+        is on"). The firmware itself does not enforce this precondition
+        -- its ``LGA80D_init()`` comment notes "these settings need to be
+        called when the supply output is OFF... this is currently not
+        ensured in this code."
+
+        This method refuses to run at all unless ``force=True`` is
+        passed -- a real hardware write with a hardware precondition
+        deserves an explicit opt-in. Whenever it does run (``force=True``),
+        it unconditionally reads the MCU's board-level power state machine
+        (:class:`~cm_interface.device.mcu.PowerFsmState`) and refuses to
+        proceed unless it reads exactly ``POWER_OFF`` -- ``force`` cannot
+        skip that check; it only unlocks the attempt.
+
+        Parameters
+        ----------
+        force : bool, optional
+            Required to attempt this at all. Does not bypass the
+            power-state check.
+
+        Raises
+        ------
+        RuntimeError
+            If ``force`` is not set, or if the power state machine is not
+            in ``PowerFsmState.POWER_OFF``.
+        """
+        if not force:
+            raise RuntimeError(
+                "refusing to reset LGA80D snapshots without force=True: "
+                "this is a real hardware write that only succeeds while "
+                "every supply's output is off. Pass force=True to "
+                "proceed -- this will still check the MCU power state "
+                "machine reports POWER_OFF before doing anything, and "
+                "refuse otherwise."
+            )
+
+        fsm_state = self.mcu.read_power().fsm_state
+        if fsm_state != PowerFsmState.POWER_OFF:
+            raise RuntimeError(
+                "refusing to reset LGA80D snapshots: MCU power state "
+                f"machine reports {fsm_state.name}, not POWER_OFF -- "
+                "the snapshot-reset command only succeeds while a "
+                "supply's output is off."
+            )
+
+        for lga in self.lga80d.values():
+            lga.reset_all_snapshots()

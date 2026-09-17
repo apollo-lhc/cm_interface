@@ -18,8 +18,8 @@
     "0x04": "Output crosspoint, MultiSynth configuration",
     "0x05": "DSPLL loop bandwidth, holdover, input switching",
     "0x09": "Input buffer configuration",
-    "0x0A": "GPIO configuration",
-    "0x0B": "NVM, calibration, device info",
+    "0x0A": "N-divider control (not GPIO -- see registers_page_0x0A)",
+    "0x0B": "Frequency-change sequence bytes, calibration, device info (NVM burn itself is on page 0x00, see NVM_WRITE)",
     "0x0C": "Additional output configuration"
   },
   "registers_page_0x00": {
@@ -59,7 +59,7 @@
     "LOS_CLR_THR_IN3": {"addr": "0x003C", "size": 2, "access": "RW", "description": "LOS clear threshold IN3 (16-bit)"},
     "LOS_MIN_PERIOD": {"addr": "0x003E", "size": 1, "access": "RW", "description": "LOS minimum period enable (set by CBPro)"},
     "OOF_ENABLE": {"addr": "0x003F", "size": 1, "access": "RW", "bits": {"3:0": "OOF_EN (IN0-IN3)", "7:4": "FAST_OOF_EN"}},
-    "OOF_REF_SEL": {"addr": "0x0040", "size": 1, "access": "RW", "description": "OOF reference select (0=XA/XB, 1=IN0, 2=IN1, 3=IN2, 4=IN3)"},
+    "OOF_REF_SEL": {"addr": "0x0040", "size": 1, "access": "RW", "description": "OOF reference select (0=IN0, 1=IN1, 2=IN2, 3=IN3, 4=XA/XB). Previously documented with 0=XA/XB and IN0-3 shifted to 1-4, which selects the wrong frequency-monitor reference."},
     "OOF_DIV_SEL": {"addr": "0x0041", "size": 5, "access": "RW", "description": "OOF dividers for IN0-IN3 and XAXB (5 bits each)"},
     "OOF_SET_THR_IN0": {"addr": "0x0046", "size": 1, "access": "RW", "description": "OOF set threshold IN0 (±500 ppm, 1/16 ppm steps)"},
     "OOF_SET_THR_IN1": {"addr": "0x0047", "size": 1, "access": "RW", "description": "OOF set threshold IN1"},
@@ -99,7 +99,7 @@
     "INT_STATUS_1": {"addr": "0x00F7", "size": 1, "access": "RO", "bits": {"0": "SYSINCAL_INTR", "1": "LOSXAXB_INTR", "2": "LOSREF_INTR", "4": "LOSVCO_INTR", "5": "SMBUS_TIMEOUT_INTR"}},
     "INT_STATUS_2": {"addr": "0x00F8", "size": 1, "access": "RO", "bits": {"3:0": "LOS_INTR", "7:4": "OOF_INTR"}},
     "INT_STATUS_3": {"addr": "0x00F9", "size": 1, "access": "RO", "bits": {"1": "LOL_INTR", "5": "HOLD_INTR"}},
-    "DEVICE_READY": {"addr": "0x00FE", "size": 1, "access": "RO", "description": "Device ready flag (non-zero = ready)"}
+    "DEVICE_READY": {"addr": "0x00FE", "size": 1, "access": "RO", "description": "Device ready flag. Ready is EXACTLY 0x0F, not merely nonzero -- any other value (including other nonzero values) is not ready. During startup polling of this register, no other register may be read or written until it reads 0x0F."}
   },
   "registers_page_0x01": {
     "OUTALL_DISABLE": {"addr": "0x0102", "size": 1, "access": "RW", "bits": {"0": "OUTALL_DISABLE_LOW (1=pass OE, 0=disable all)"}},
@@ -122,8 +122,8 @@
     "OUT_DIS_MASK": {"addr": "0x0141", "size": 1, "access": "RW", "bits": {"1": "OUT_DIS_MSK", "5": "OUT_DIS_LOL_MSK", "6": "OUT_DIS_LOSXAXB_MSK", "7": "OUT_DIS_MSK_LOS_PFD"}},
     "OUT_DIS_MASK_LOL": {"addr": "0x0142", "size": 1, "access": "RW", "bits": {"1": "OUT_DIS_MSK_LOL", "5": "OUT_DIS_MSK_HOLD"}},
     "OUT_PDN_ALL": {"addr": "0x0145", "size": 1, "access": "RW", "bits": {"0": "OUT_PDN_ALL (0=no effect, 1=power down all)"}},
-    "OUT0A_FORMAT_DET": {"addr": "0x0104", "size": 1, "access": "RW", "description": "Output format: 0=LVPECL, 1=LVDS, 2=HCSL, 3=LVCMOS"},
-    "OUT0A_AMPL_DET": {"addr": "0x0105", "size": 1, "access": "RW", "description": "Output amplitude: 0=200mV, 1=400mV, 2=600mV, 3=800mV, 4=1000mV, 5=1200mV, 6=1400mV, 7=1600mV"}
+    "OUT0A_FORMAT_DET": {"addr": "0x0104", "size": 1, "access": "RW", "description": "Output format (Table 16.74): 0=Reserved, 1=Differential normal, 2=Differential low-power, 3=Reserved, 4=LVCMOS. Previously documented as 0=LVPECL/1=LVDS/2=HCSL/3=LVCMOS, which does not match the datasheet enum."},
+    "OUT0A_AMPL_DET": {"addr": "0x0105", "size": 1, "access": "RW", "description": "Output amplitude. NOT a universal 0-7=200-1600mV scale -- valid amplitude values and their voltages depend on OUT0A_FORMAT_DET's mode (see section 6.3.2/Table 6.4). Do not use a fixed mV table without checking the selected format first."}
   },
   "registers_page_0x02": {
     "PXAXB": {"addr": "0x0206", "size": 1, "access": "RW", "description": "Pre-scale divider for XA/XB input clock"},
@@ -136,8 +136,8 @@
     "P3_NUM": {"addr": "0x0226", "size": 6, "access": "RW", "description": "P3 (IN3) divider numerator (48-bit)"},
     "P3_DEN": {"addr": "0x022C", "size": 4, "access": "RW", "description": "P3 (IN3) divider denominator (32-bit)"},
     "P_UPDATE": {"addr": "0x0230", "size": 1, "access": "WO", "bits": {"0": "P0_UPDATE", "1": "P1_UPDATE", "2": "P2_UPDATE", "3": "P3_UPDATE"}},
-    "P_FRACN_MODE": {"addr": "0x0231", "size": 4, "access": "RW", "description": "P-divider fractional mode for IN0-IN3 (4 bits each)"},
-    "P_FRAC_EN": {"addr": "0x0231", "size": 1, "access": "RW", "bits": {"4": "P0_FRAC_EN", "5": "P1_FRAC_EN", "6": "P2_FRAC_EN", "7": "P3_FRAC_EN"}},
+    "P_FRACN_MODE": {"addr": "0x0231", "size": 4, "access": "RW", "description": "P-divider fractional mode nibble for IN0-IN3, one byte each (0x0231=P0 .. 0x0234=P3). The mode nibble must be 0xB."},
+    "P_FRAC_EN": {"addr": "0x0231", "size": 4, "access": "RW", "description": "P-divider fractional enable, bit 4 of EACH byte 0x0231-0x0234 (one bit per input, not four bits packed into a single byte).", "bits_per_byte": {"4": "P{n}_FRAC_EN for that input's byte (0x0231=P0 .. 0x0234=P3)"}},
     "MXAXB_NUM": {"addr": "0x0235", "size": 6, "access": "RW", "description": "MXAXB numerator (44-bit)"},
     "MXAXB_DEN": {"addr": "0x023B", "size": 4, "access": "RW", "description": "MXAXB denominator (32-bit)"},
     "MXAXB_UPDATE": {"addr": "0x023F", "size": 1, "access": "WO", "description": "Update MXAXB divider"},
@@ -170,18 +170,20 @@
     "IN_CMODE": {"addr": "0x094F", "size": 1, "access": "RW", "description": "Input common mode configuration"}
   },
   "registers_page_0x0A": {
-    "GPIO_CFG": {"addr": "0x0A00", "size": 16, "access": "RW", "description": "GPIO pin configuration and mapping"}
+    "N_DIV_CTRL": {"addr": "0x0A02", "size": 4, "access": "RW", "description": "N-divider control (section 16.8, Table 16.172 onward). No GPIO configuration block exists in this address range -- a previous version of this file invented a 'GPIO_CFG' register at 0x0A00 (reserved) that overlapped this real N-divider control range. Do not write to 0x0A00/0x0A01."}
   },
   "registers_page_0x0B": {
-    "NVM_CTRL": {"addr": "0x0B24", "size": 1, "access": "RW", "description": "NVM control (0xC0=write prep, 0xC3=commit)"},
-    "NVM_STATUS": {"addr": "0x0B25", "size": 1, "access": "RO", "description": "NVM status"},
+    "FREQ_CHANGE_PREAMBLE_1": {"addr": "0x0B24", "size": 1, "access": "RW", "description": "Reserved byte used in the frequency-change preamble/postamble sequence (see programming_sequence below). NOT an NVM control register -- a previous version of this file mislabeled this 'NVM_CTRL'. The real NVM burn command is registers_page_0x00.NVM_WRITE (0x00E3=0xC7)."},
+    "FREQ_CHANGE_PREAMBLE_2": {"addr": "0x0B25", "size": 1, "access": "RW", "description": "Reserved byte used in the frequency-change preamble/postamble sequence. NOT an NVM status register -- a previous version of this file mislabeled this 'NVM_STATUS'."},
     "DESIGN_ID": {"addr": "0x026B", "size": 8, "access": "RW", "description": "User scratch space (DESIGN_ID0-DESIGN_ID7)"}
   },
   "programming_sequence": {
+    "description": "Frequency-plan-change sequence. This does NOT program NVM by itself -- see registers_page_0x00.NVM_WRITE for the separate, distinct NVM-burn command/procedure. No Python method in this codebase currently implements this sequence; it is documented here for reference only.",
     "preamble": [
+      "Write 0x0B24 = 0xC0",
+      "Write 0x0B25 = 0x00",
       "Write 0x0540 = 0x01 (enable register writes)",
-      "Write 0x0B24 = 0xC0 (prepare NVM)",
-      "Write 0x0B25 = 0x00"
+      "Wait 300 ms for grades A/B/C/D/J/K/L/M, or 625 ms for grades P/E, before proceeding"
     ],
     "configuration": [
       "Configure input dividers (P0-P3)",
@@ -192,7 +194,7 @@
     "postamble": [
       "Write SOFT_RST (0x001C[0]) = 1",
       "Write 0x0540 = 0x00 (disable register writes)",
-      "Write 0x0B24 = 0xC3 (commit to NVM)",
+      "Write 0x0B24 = 0xC3",
       "Write 0x0B25 = 0x02"
     ]
   },
@@ -206,6 +208,6 @@
     "Fastlock feature reduces lock acquisition time (100 Hz to 4 kHz)",
     "Hitless switching supported for frequency-locked inputs",
     "Zero Delay Mode (ZDM) available for phase alignment",
-    "12 outputs (OUT0-OUT9, OUT0A, OUT9A) with independent MultiSynth dividers"
+    "12 outputs (OUT0-OUT9, OUT0A, OUT9A) do NOT each have an independent MultiSynth divider: five N-dividers (N0-N4) feed the twelve output drivers, with a per-output R divider (see section 16.76/16.77)"
   ]
 }

@@ -117,9 +117,12 @@ class Si5395Reg(IntEnum):
     ZDM_EN = 0x0487
     HSW_EN = 0x0536
     
-    # Page 0x0B - NVM Control
-    NVM_CTRL = 0x0B24
-    NVM_STATUS = 0x0B25
+    # Page 0x0B - reserved preamble/postamble bytes used by the frequency-
+    # change sequence. Despite their page location these are NOT NVM
+    # control/status registers -- the real NVM burn command is NVM_WRITE
+    # (0x00E3) above.
+    FREQ_CHANGE_PREAMBLE_1 = 0x0B24
+    FREQ_CHANGE_PREAMBLE_2 = 0x0B25
 
 
 class LolStatusBits(IntEnum):
@@ -193,12 +196,29 @@ class Clock(Device):
         """Compatibility name for the structured live health snapshot."""
         return self.health
 
+    def is_ready(self) -> bool:
+        """Return whether the device has finished its startup calibration.
+
+        This reads *only* DEVICE_READY, which is the sole register access
+        the manufacturer's startup sequence permits until the device
+        reports ready -- callers must not read/write anything else
+        beforehand. The device is ready only when this register reads
+        exactly ``0x0F``; any other nonzero value is still "not ready",
+        not a partial-ready state.
+        """
+        return self.read_reg(Si5395Reg.DEVICE_READY)[0] == 0x0F
+
     @property
     def health(self) -> ClockHealth:
+        """Live health snapshot for post-startup monitoring.
+
+        Do not call this until :meth:`is_ready` returns ``True`` --
+        the registers read here are not part of the startup-safe set.
+        """
         sysincal, los_oof, lol_hold, cal_pll = self.read_reg(
             Si5395Reg.SYSINCAL, size=4
         )
-        ready = self.read_reg(Si5395Reg.DEVICE_READY)[0] != 0
+        ready = self.is_ready()
         return ClockHealth(
             system_calibrating=bool(sysincal & (1 << 0)),
             xa_xb_loss_of_signal=bool(sysincal & (1 << 1)),
