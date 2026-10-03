@@ -3,7 +3,7 @@ from enum import IntEnum
 
 from ..compat import dataclass
 from .base import Device
-from ..utils import decode_linear11, decode_linear16u, encode_linear16u
+from ..utils import decode_linear11, decode_linear16u
 
 # Time to wait after triggering a snapshot capture (SNAPSHOT_CONTROL=0x01)
 # before the device has copied its live registers into the readable snapshot
@@ -62,7 +62,6 @@ class LGA80DReg(IntEnum):
     PAGE         = 0x00
     OPERATION    = 0x01
     ON_OFF_CONFIG = 0x02
-    VOUT_COMMAND = 0x21
     STATUS_WORD  = 0x79
     STATUS_VOUT  = 0x7A
     STATUS_IOUT  = 0x7B
@@ -171,15 +170,6 @@ class LGA80D(Device):
     @property
     def voltage(self) -> float:
         return self.read_output_voltage(page=0)
-
-    @voltage.setter
-    def voltage(self, v: float) -> None:
-        self.set_output_voltage(v, page=0)
-
-    def set_output_voltage(self, value: float, page: int = 0) -> None:
-        """Set the commanded voltage for one output page."""
-        reg = self._paged_reg(LGA80DReg.VOUT_COMMAND, page)
-        self.write_reg(reg, encode_linear16u(value))
 
     def reset_snapshot(self, page: int = 0) -> None:
         """Reset the snapshot history register for one output page.
