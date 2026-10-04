@@ -237,6 +237,11 @@ class AdcSnapshot:
     readings: Tuple[AdcReading, ...]
 
     def __getitem__(self, name: str) -> AdcReading:
+        # Under the Python 3.6 compat fallback this class is a namedtuple, and
+        # ``self.readings`` itself calls ``self[0]``; without this guard that
+        # recurses forever.
+        if not isinstance(name, str):
+            return tuple.__getitem__(self, name)
         for reading in self.readings:
             if reading.name == name:
                 return reading
@@ -398,10 +403,12 @@ class MCU(Device):
 
         No generation counter: the two FSM-state bytes, the temperature
         status/warning-latch pair, and the three voltage-alarm bytes are each
-        updated atomically as a group by firmware, so each group is read in
-        one transaction. Staleness between the temperature and voltage groups
-        is ordinary staleness between two independently scheduled tasks, not
-        tearing.
+        updated atomically as a group by firmware. Note the status/latch pair
+        is fetched as an 8-byte ``read_block``, i.e. two 4-byte wire
+        transactions -- the firmware-side grouping holds, but the pair is not
+        read atomically over the wire. Staleness between the temperature and
+        voltage groups is ordinary staleness between two independently
+        scheduled tasks, not tearing.
         """
         page = McuPage.ALARM
         temp_task_state = AlarmTaskState(self._read_u8(page, AlarmReg.TEMP_TASK_STATE))

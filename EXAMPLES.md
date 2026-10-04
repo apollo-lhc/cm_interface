@@ -93,16 +93,33 @@ reg = Registry(setup='tf', debug=sys.stderr)
 
 ### Understanding UART Debug Output
 
-Each transaction shows:
+The wire protocol is **line-oriented ASCII**, not binary: uppercase hex fields
+separated by spaces and terminated by a newline. There is no CRC and no length
+prefix. The debug stream prints each line verbatim, with the terminator escaped
+so a record cannot wrap:
+
 ```
-UART TX (7): 10 00 02 6b 00 79
-│          │  │  │  │    │  └── CRC8 checksum
-│          │  │  │    │  └───── Payload length (0 = read)
-│          │  │  └─────────── Register address (0x026B)
-│          │  └────────────── Write flag (0x00 = READ, 0x01 = WRITE)
-│          └───────────────── Device address (0x10 = R0A)
-└──────────────────────────── Direction (TX = transmit)
+UART TX (14): r MC 0 3 20 4\n
+│           │  │  │  │ │  │
+│           │  │  │  │ │  └── read length in bytes (1-4)
+│           │  │  │  │ └───── byte offset within the page (hex)
+│           │  │  │  └─────── register page (hex)
+│           │  │  └────────── device number within that type
+│           │  └───────────── device type: DC, FF, CL, MC or FP
+│           └──────────────── verb: r = read, w = write
+└──────────────────────────── direction and byte count
+
+UART RX (14): d 00 3C 00 3C\n
+              └── d = read OK, followed by one 2-hex-digit byte per value.
+                  Write OK is `c`; an error is `e <message>`.
 ```
+
+A write puts the payload bytes after the address, e.g. `w MC 0 7F 0 03\n`,
+and at most four data bytes fit in one transaction. Multi-byte values are
+little-endian, so the `d 00 3C 00 3C` above is two binary16 values, each
+`0x3C00` = 1.0.
+
+Bytes that are not valid ASCII are rendered as `[hex] ..` instead.
 
 **Note:** Debug logging is disabled by default (no performance impact).
 

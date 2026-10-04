@@ -228,4 +228,26 @@ delivery across more than one queue.
 | read from a write-only page | `MCU register is write only` |
 | valid request, queue-owned op not yet accepted | `MCU queue full` |
 | transient unavailability | `MCU data busy` |
+| valid address and length, unrecognized Control-page command byte | `invalid MCU command` |
 | anything else | `MCU internal error` |
+
+`invalid MCU command` corresponds to `MCU_REG_INVALID_COMMAND`
+(`MCU_Reg.h:17`, returned at `ProgComTask.c:338`). It is reachable today: any
+byte other than 1-4 written to page `0x7f` produces it.
+
+One firmware string is deliberately kept out of the table above.
+`ProgComTask.c:357` returns `invalid MCU OP` from a defensive `else` on an op
+that can only be read or write — `enum progcom_op_t` has exactly two
+enumerators, the parser always assigns one, and `PROGCOM_OP_READ` is 0 so even
+a zero-initialised command defaults to a valid op. The branch is **unreachable**
+and is slated for deletion (B9 in `../MCU_UART7_IMPLEMENTATION_PLAN.md`), so it
+is described here rather than listed as a condition an operator could hit.
+
+<!-- DELETE THIS PARAGRAPH when B9 removes the ProgComTask.c:357 branch. -->
+
+Note for maintainers: `tests/test_wire_contract.py::test_firmware_error_strings_are_documented`
+checks that each firmware string appears *somewhere* in this file, not that it
+appears in the table. Prose like the paragraph above therefore satisfies it.
+That is deliberate — an explained string is documented — but it means the test
+cannot tell "listed as an operator-visible error" from "explained as dead
+code"; a reviewer has to.

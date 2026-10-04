@@ -56,7 +56,7 @@ first transaction.
 ### MCU endpoint
 
 The Python `MCU` client for ProgCom device `MC 0` follows
-`../MCU_REGISTER_MAP.md` (map major version 1) for CM REV2 and REV3:
+`MCU_REGISTER_MAP.md` (map major version 1) for CM REV2 and REV3:
 
 - `system_info` verifies magic `CMCU` and register-map major version 1, then
   returns map version, hardware revision, capability and health masks, board
@@ -73,7 +73,10 @@ The Python `MCU` client for ProgCom device `MC 0` follows
 - `read_alarm()` / `alarm` returns the Alarm page's task states and
   temperature/voltage bitmaps. It has no generation counter — each field
   group (state bytes; temperature status/latch pair; the three voltage-alarm
-  bytes) is updated atomically by firmware and read in one transaction;
+  bytes) is updated atomically by firmware. Note the temperature
+  status/latch pair is an 8-byte `read_block`, i.e. **two** 4-byte wire
+  transactions, not one: the firmware-side group atomicity argument holds,
+  but the pair is not read atomically over the wire;
 - `read_persistent_log_info()` and `read_persistent_log_entries()` read the
   frozen (offsets final, not yet firmware-served) persistent-log pages; and
 - `send_control(McuControlCommand...)` writes the one-byte write-only
@@ -85,11 +88,30 @@ map. Do not infer support from an enum member alone; inspect the
 firmware-reported capability mask, since a page can be frozen (offsets final)
 without firmware yet serving real data.
 
-This checkout contains the Python client and memory-backed unit tests, not the
-matching MCU firmware source or a target-hardware result. Deployed firmware
-must implement the version-1 `MC 0` map; older firmware may still answer
-`MCU device not implemented`. See `../MCU_DEVICE_PLAN.md` and
-`../MCU_FIRMWARE_IMPLEMENTATION_PLAN.md` for the remaining phases.
+**Done:** the Python client and memory-backed unit tests, and the matching
+firmware — `cm_mcu/projects/cm_mcu/MCU_Reg.c` and `MCU_Reg.h` on branch
+`feature/sm_uart` — which serves pages `0x00` System, `0x01` Power, `0x02`
+Alarm, `0x03` ADC and `0x7f` Control. Nothing here establishes what is
+installed on a given target; older firmware may still answer
+`MCU device not implemented`.
+
+**Outstanding** — all in `../MCU_UART7_IMPLEMENTATION_PLAN.md`:
+
+- prerequisite fixes B1-B13; B6/B9 keep `tests/test_wire_contract.py`
+  failing and block Phase 1;
+- Phase 1 (read-only System additions, Runtime page `0x06`, more Control
+  commands), Phase 2 (Config page `0x05`; writes need maintainer sign-off),
+  Phase 3 (persistent log). Pages `0x30`/`0x31` are frozen but **not**
+  served: reads return `e invalid MCU page`.
+
+`MCU_REGISTER_MAP.md` (in this directory) plus `MCU_Reg.h` are the
+authoritative wire contract. The superseded plans in `../outdated/` have
+wrong offsets; do not use them.
+
+The register map is hand-synced across `MCU_Reg.h`, `device/mcu.py` and
+`MCU_REGISTER_MAP.md` with no generator. `tests/test_wire_contract.py` parses
+the firmware header and asserts the Python enums match it; run it whenever you
+touch any of the three.
 
 ### FPGA endpoints
 
@@ -118,8 +140,10 @@ register names, permissions, decoding, or protection against semantically
 unsafe writes. The deployed MCU firmware must provide the `FP` transport and
 the loaded bitfile must instantiate a compatible generic I2C endpoint. A
 missing bitfile endpoint is expected and is not automatically a board fault.
-See `../FPGA_GENERIC_INTERFACE_PLAN.md` for the unimplemented profile and
-identity phases.
+
+**Done:** Phase 1 raw transport. **Outstanding:** profiles, identity, named
+registers, permissions and the VU13P adapter — see
+`../FPGA_GENERIC_INTERFACE_PLAN.md`.
 
 ### FPGA generic-port hardware facts
 
@@ -210,19 +234,6 @@ device_id = clock.read_reg(Si5395Reg.DEVICE_ID)
 
 **Important:** Do not manually write to the PAGE register (0x0001). The UART bridge encodes the full 16-bit address in each command, automatically selecting the correct page.
 
-## Extending with agents
-
-If you need an Opencode agent that performs higher‑level tasks (e.g., bulk configuration, health‑check scripts, or integration with a CI pipeline):
-
-```python
-from cm_interface.registry import Registry
-
-class MyAgent:
-    def run(self):
-        reg = Registry(setup='tf')  # or 'it_dtc', or None for custom
-        # perform actions, return JSON or human‑readable report
-```
-
 ## Register Documentation
 
 Complete register maps are available in the `registers/` directory:
@@ -233,6 +244,4 @@ Complete register maps are available in the `registers/` directory:
 | `firefly12.json` | Firefly 12-channel | 24+ (lower + upper pages) |
 | `firefly4.json` | Firefly 4-channel | 22+ |
 | `firefly_cernb.json` | Firefly CERN-B variant | 25+ |
-| `lga80d.json` | LGA80D DC-DC Converter | 44 PMBus commands |
-
-No additional configuration files are required beyond the standard Opencode agent manifest.
+| `lga80d.json` | LGA80D DC-DC Converter | 63 PMBus commands |

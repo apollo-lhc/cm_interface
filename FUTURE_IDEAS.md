@@ -1,28 +1,22 @@
 # Future ideas
 
-## MCU and FPGA device interfaces
+## MCU device interface
 
-Two larger interface extensions have separate detailed plans in the parent
-directory:
+**Done:** `MC 0` pages `0x00` System, `0x01` Power, `0x02` Alarm, `0x03` ADC
+and `0x7f` Control, in firmware and in `device/mcu.py`. `MCU_REGISTER_MAP.md`
+is the wire contract.
 
-- `../MCU_DEVICE_PLAN.md` covers presenting the MCU as a device, including
-  power-state diagnostics and command arbitration, alarms and ADC readings,
-  reset/failure causes, and both volatile and persistent error histories.
-  ADC telemetry reuses `ZynqMonTask`'s IEEE-754 binary16 representation in
-  little-endian ProgCom byte order; raw ADC counts are intentionally omitted.
-  Configured voltage-alarm targets are included with a target-valid bitmap.
-  Clear commands retain CLI behavior: alarm-triggered shutdown normally
-  removes the live cause before its retained latch is cleared, whereas power
-  `clearfail` clears immediately and may permit the normal retry sequence when
-  the Zynq request remains high. ProgCom reports successful queueing; clients
-  observe completion through ordinary latch/FSM status. The persistent EEPROM
-  log is only 64 words, so clients read the full logical ring and filter
-  empty/erased sentinels. No maintained valid-entry count is needed; a
-  mutation generation protects coherent multi-read snapshots.
-  The MCU ProgCom device targets CM REV2 and REV3 only; REV1 support and an
-  alternate REV1 transport are out of scope.
-- `../FPGA_GENERIC_INTERFACE_PLAN.md` covers the generic I2C ports on F1 and
-  F2.
+**Outstanding:** `../MCU_UART7_IMPLEMENTATION_PLAN.md` — prerequisite fixes
+B1-B13, then Phase 1 (System additions, Runtime page `0x06`, Control
+additions), Phase 2 (Config page `0x05`) and Phase 3 (persistent log
+`0x30`/`0x31`, offsets frozen but not served). The analysis behind it is
+`../MCU_CLI_GAP_PLAN.md`. The original MCU plans are in `../outdated/` and
+their offsets are wrong.
+
+## FPGA generic interface
+
+**Done:** Phase 1, the raw `FP 0`/`FP 1` transport, tested on hardware.
+**Outstanding:** everything above it, per `../FPGA_GENERIC_INTERFACE_PLAN.md`.
 
 The FPGA interface should be implemented as a stable raw MCU transport and a
 data-driven Python profile layer. The physical routing is fixed, but the
@@ -53,7 +47,67 @@ I2C5. Since this mailbox occupies the previously suggested descriptor range,
 a universal identity mechanism needs either a small agreed common header,
 banked metadata, or profile-specific safe probes until a common ABI exists.
 
+## TCA9555 I/O expanders
+
+Full plan: `../MCU_IOEXPANDER_PLAN.md`. **Not started.** Layer A depends on
+Phase 1 of the UART7 plan; B and C are independent of it.
+
+CM REV3 carries six TCA9555 I/O expanders — two for the clock synthesizers
+(schematic sheet 4.03) and two per FPGA for the optics (sheets 4.05/4.06).
+They are reachable **only** from the interactive CLI's generic I2C commands;
+ProgCom has no path to them, so `cm_interface` cannot see them at all. Bus,
+mux, channel and address for all six are tabulated in the plan and were
+cross-checked against firmware that already drives these parts. Note F1 sits
+on I2C bus 4 and F2 on bus 3 — the inversion is verified in three places and
+is the easiest detail here to get backwards.
+
+The expanders carry Firefly presence and interrupt lines, the 3V8 rail enables
+and their read-only select straps, the ganged per-FPGA Firefly reset, and the
+clock-synth resets and input selects.
+
+Proposed in three layers, to be shipped in order:
+
+- **A — derived state, no new I2C.** Most of the practical value is already
+  cached in MCU RAM at boot. The Firefly presence masks are already covered by
+  Phase 1 of `../MCU_UART7_IMPLEMENTATION_PLAN.md`; this adds
+  `f1_ff12xmit_4v0_sel` / `f2_ff12xmit_4v0_sel`, one `uint32_t` each. No mux,
+  no bus access, nothing that can change board state. Should ride along with
+  that Phase 1 rather than waiting for the rest.
+- **B — a constrained `IO` device type, read-only.** Not the generic I2C verb
+  rejected in `../MCU_CLI_GAP_PLAN.md` §3.4: a firmware-owned table that the
+  device number indexes into, exactly as `DC`/`FF`/`CL`/`FP` already work, so
+  the client never names a bus, mux or I2C address. Wire syntax
+  `r IO <devnum> 0 <reg>`. Plus a `device/tca9555.py` class with named signals
+  (active-low correction in exactly one place), six named registry instances,
+  a documentation-only `registers/tca9555.json`, and a contract-test entry
+  covering the six-row routing table.
+- **C — writes. Needs sign-off; do not start without it.** The configuration
+  registers `0x06`/`0x07` are a larger hazard than the resets: writing the
+  wrong direction bit either floats a control line or drives against an
+  external driver, and neither shows up as an I2C error. The plan recommends
+  refusing `0x04`-`0x07` over ProgCom unconditionally, and exposing
+  `ff_reset` / `clkreset` as named page-`0x7f` control commands rather than raw
+  writes, because the firmware already owns the correct pulse sequence and the
+  REV2/REV3 bit difference.
+
+REV2 and REV3 differ in five ways that a naive implementation gets silently
+wrong — reset pin, 3V8 mask, presence field width, 4-channel presence bit
+positions, and strap width. They are tabulated in the plan. REV1 has no
+ProgCom and is out of scope.
+
+Open question worth settling before any of layer C: if the only operations
+ever needed remotely are `ff_reset` and `clkreset`, skip raw writes entirely
+and add two control commands instead.
+
 ## LGA80D snapshot support
+
+**Done:** resetting the snapshot needs only ordinary register writes, so it is
+implemented in Python — `LGA80D.reset_snapshot(page)`, `reset_all_snapshots()`
+and `Registry.reset_all_lga80d_snapshots(force=True)`.
+
+**Outstanding:** reading the snapshot. It needs the new firmware verb below
+and is not covered by any current plan (`../MCU_CLI_GAP_PLAN.md` §3.5 lists it
+as unreachable over ProgCom).
 
 Expose the LGA80D's atomic 32-byte monitoring snapshot through the
 programmatic UART interface. This must be a dedicated operation rather than a
@@ -96,7 +150,6 @@ The Python interface should decode the block into an immutable
 
 ```python
 lga.read_snapshot(page=0, reset_after=False)
-lga.reset_snapshot(page=0)
 ```
 
 The decoded fields are VIN, VOUT, IOUT, maximum IOUT, duty cycle, temperature,

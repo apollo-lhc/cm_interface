@@ -13,8 +13,11 @@ cm_interface/
 ├─ compat.py              # Python 3.6 compatibility helpers
 ├─ uart.py                # Lazy UART wrapper (pySerial) with debug logging
 ├─ errors.py              # Exception hierarchy
-├─ utils.py               # CRC8, packing helpers
+├─ utils.py               # PMBus Linear11/Linear16 codecs (crc8/pack_uint16 are unused)
 ├─ registry.py            # Global Registry for board devices
+├─ examples.py            # Worked examples (see EXAMPLES.md)
+├─ exercise_mcu.py        # Exercise the MCU pages; power-cycle/control need --yes
+├─ lga80d_status.py       # Read-only decoded LGA80D status registers (one device or --all)
 ├─ core_config.py         # Fixed UART addresses for clocks and LGA80D
 ├─ firefly_presets.py     # Board-specific Firefly layouts (TF, IT-DTC)
 ├─ device/
@@ -25,6 +28,7 @@ cm_interface/
 │  ├─ lga80d.py           # LGA80D DC-DC converter implementation
 │  ├─ mcu.py              # Command-module MCU register interface
 │  └─ fpga.py             # Raw F1/F2 generic register interface
+├─ tests/                 # FakeUART unit tests; tests/hw/ is the opt-in hardware suite
 └─ registers/
    ├─ si5395.json         # Si5395 register map (page-based)
    ├─ firefly12.json      # Firefly 12-channel register map
@@ -85,6 +89,8 @@ f1.write_reg(0x00, 0x12345678, size=4)
 interface for ProgCom device `MC 0`:
 
 ```python
+from cm_interface.device.mcu import McuControlCommand
+
 mcu = reg.get_mcu()
 info = mcu.system_info
 print(info.git_version, info.uptime_seconds, info.capabilities, info.health)
@@ -102,23 +108,37 @@ mcu.send_control(McuControlCommand.CLEAR_ALARM_LATCHES)
 ```
 
 `system_info` validates the `CMCU` magic and map major version 1. ADC values
-are 21 little-endian IEEE-754 binary16 values; an unpublished channel reads
-back as `NaN` rather than carrying a separate validity bitmap. `read_power()`
+are 21 little-endian IEEE-754 binary16 values, selectable by channel name; an
+unpublished channel reads back as `NaN` rather than carrying a separate
+validity bitmap. `read_power()`
 uses an even/odd generation counter and retries if publication changes mid-
 read, matching the ~25ms control-loop pass firmware updates it in. `read_alarm()`
 has no generation counter — its state/status/latch fields are each updated
-atomically as a group by firmware, so each group is read in one transaction.
-Persistent-log pages are frozen (offsets are final) but not yet served by
-firmware — reads currently return `invalid MCU page`. Snapshot entries can be
-selected by channel name.
+atomically as a group by firmware. The temperature status/latch pair is an
+8-byte `read_block`, which is **two** 4-byte wire transactions rather than
+one; the firmware-side grouping still holds, but the pair is not fetched
+atomically over the wire.
 
-The Python implementation is unit-tested with an in-memory endpoint; this
-repository does not contain the matching MCU firmware or establish what is
-installed on a target. The deployed firmware must implement the version-1
-`MC 0` map. Older firmware may return
-`MCU device not implemented`. The remaining firmware and Python phases are
-tracked in `../MCU_FIRMWARE_IMPLEMENTATION_PLAN.md` and
-`../MCU_DEVICE_PLAN.md`.
+**Done.** Python client and in-memory unit tests for pages `0x00` System,
+`0x01` Power, `0x02` Alarm, `0x03` ADC and `0x7f` Control. The matching
+firmware (`cm_mcu/projects/cm_mcu/MCU_Reg.c`, branch `feature/sm_uart`) serves
+those five pages. Nothing here establishes what is installed on a given
+target; older firmware may still return `MCU device not implemented`.
+
+**Outstanding** — tracked in `../MCU_UART7_IMPLEMENTATION_PLAN.md`:
+
+- prerequisite fixes B1-B13. B6/B9 (two undocumented firmware error strings)
+  keep `tests/test_wire_contract.py` failing and block Phase 1;
+- Phase 1: new read-only System fields, a Runtime page `0x06`, more Control
+  commands;
+- Phase 2: a Config page `0x05` (the write path needs maintainer sign-off);
+- Phase 3: the persistent-log pages `0x30`/`0x31`. Their offsets are frozen
+  and `read_persistent_log_info()`/`read_persistent_log_entries()` exist, but
+  firmware does not serve them — reads return `invalid MCU page`.
+
+`../MCU_CLI_GAP_PLAN.md` records which MCU state is still reachable only from
+the interactive CLI. `MCU_REGISTER_MAP.md` and `MCU_Reg.h` are the
+authoritative wire contract; the older plans in `../outdated/` are not.
 
 ## FPGA endpoint status
 
@@ -144,10 +164,12 @@ An address-phase I2C NACK reported by the MCU as `ADDR_ACK_ERROR` becomes
 `FPGAInterfaceUnavailable`, since a valid bitfile may omit the endpoint.
 Data-phase NACKs and ambiguous errors remain ordinary `RegisterAccessError`
 failures. The deployed MCU firmware must implement the `FP` transport and the
-loaded FPGA bitfile must instantiate the generic I2C slave. Bitfile profiles,
-identity matching, named registers, permissions, and high-level diagnostics
-are not implemented yet; raw writes therefore have no semantic safety checks.
-Those later phases are described in `../FPGA_GENERIC_INTERFACE_PLAN.md`.
+loaded FPGA bitfile must instantiate the generic I2C slave.
+
+**Done:** Phase 1, the raw `FP` transport, tested on hardware. **Outstanding**
+(`../FPGA_GENERIC_INTERFACE_PLAN.md`): bitfile profiles, identity matching,
+named registers, permissions, high-level diagnostics and the VU13P GT-test
+adapter. Until then raw writes have no semantic safety checks.
 
 ## Debug Logging
 
@@ -257,7 +279,7 @@ expected hardware or configuration error.
 
 ## Extending the framework
 1. **Add a new device** – create a subclass of `Device` in `device/`, implement `_encode_command`/`_decode_response` and any convenience properties.
-2. **Populate the Registry** – extend `Registry._populate` with the address mapping for the new device type or add a new preset to `config.PRESET_CONFIGS`.
+2. **Populate the Registry** – extend `Registry._init` with the address mapping for the new device type, or add a new preset to `FIREfly_PRESETS` in `firefly_presets.py` (keyed by `BoardSetup`). Immutable clock/LGA80D wiring lives in `core_config.py`; the LGA80D "addresses" there are indices into the MCU firmware's `pm_addrs_dcdc[]` table (`address - 0x40`), not I2C addresses.
 3. **Register definitions** – optional JSON/YAML files can be placed under `registers/` to document registers; they are not used by the code but serve as reference.
 
 ## Testing

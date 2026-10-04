@@ -42,11 +42,14 @@ clocks = {
     "R0A": 0x10, "R0B": 0x11,
     "R1A": 0x12, "R1B": 0x13, "R1C": 0x14,
 }
+# NOTE: order matters -- these synthetic addresses must follow the MCU's
+# pm_addrs_dcdc[] table, because the ASCII protocol sends address - 0x40 as
+# the zero-based device number.  Authoritative copy: core_config.py.
 lga80d = {
-    "F1VCCINT1": 0x40, "F1VCCINT2": 0x41,
-    "F2VCCINT1": 0x42, "F2VCCINT2": 0x43,
-    "F1AVTT/CC": 0x44, "F2AVTT/CC": 0x45,
-    "3V3/1V8":    0x46,
+    "3V3/1V8":   0x40,
+    "F1VCCINT1": 0x41, "F1VCCINT2": 0x42,
+    "F2VCCINT1": 0x43, "F2VCCINT2": 0x44,
+    "F1AVTT/CC": 0x45, "F2AVTT/CC": 0x46,
 }
 ```
 
@@ -80,7 +83,7 @@ Complete JSON register maps are in `registers/`:
 | `firefly12.json` | 24+ (lower + upper pages) | 12-channel Tx/Rx |
 | `firefly4.json` | 22+ | 4-channel XCVR |
 | `firefly_cernb.json` | 25+ | CERN-B variant (TX base 0x30, RX base 0x40) |
-| `lga80d.json` | 44 PMBus commands | Voltage, current, protection |
+| `lga80d.json` | 63 PMBus commands | Voltage, current, protection |
 
 ## Board Configurations
 
@@ -225,9 +228,9 @@ voltage = lga.voltage
 | 8-bit addresses, 16-bit data | All device registers use this format |
 | Page-based addressing | Si5395 (256 pages), Firefly (upper pages 0x00-0x0B) |
 | Firefly support | `Firefly12`, `Firefly4`, `FireflyTx`, `FireflyRx`, CERN-B variants |
-| LGA80D support | 44 PMBus commands documented in `lga80d.json` |
+| LGA80D support | 63 PMBus commands documented in `lga80d.json` |
 | Clock chip support | Si5395 register map with 100+ registers across 10 pages |
-| High-priority interrupt handling | UART protocol supports command/response with CRC |
+| High-priority interrupt handling | UART protocol is line-oriented ASCII command/response; there is **no** CRC on the wire |
 | Mutable board layouts | `firefly_presets.py` with TF, IT-DTC, custom configs |
 | Immutable core wiring | `core_config.py` with frozen dataclass |
 

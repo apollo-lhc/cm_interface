@@ -7,21 +7,23 @@ from cm_interface.firefly_presets import BoardSetup, FIREfly_PRESETS
 from cm_interface.registry import Registry
 
 
+# REV3 firmware ff_moni2c_addrs[] slots (cm_mcu LocalTasks.c); see the table
+# in firefly_presets.py.
 TF_WIRE_INDEX = {
-    "F2_6": 0,
-    "F1_1": 1, "F1_2": 2, "F1_3": 3, "F1_4": 4,
-    "F2_3": 5,
+    "F2_6": 19,
+    "F1_1": 1, "F1_2": 3, "F1_3": 5, "F1_4": 7,
+    "F2_3": 14,
 }
 
 IT_DTC_WIRE_INDEX = {
-    "F1_5": 0, "F1_6": 1, "F2_5": 2, "F2_6": 3,
-    "F1_1": 4,
-    "F1_2_Tx": 5, "F1_2_Rx": 6,
-    "F1_3_Tx": 7, "F1_3_Rx": 8,
-    "F1_4_Tx": 9, "F1_4_Rx": 10,
-    "F2_2_Tx": 11, "F2_2_Rx": 12,
-    "F2_3_Tx": 13, "F2_3_Rx": 14,
-    "F2_4_Tx": 15, "F2_4_Rx": 16,
+    "F1_5": 8, "F1_6": 9, "F2_5": 18, "F2_6": 19,
+    "F1_1": 0,
+    "F1_2_Tx": 2, "F1_2_Rx": 3,
+    "F1_3_Tx": 4, "F1_3_Rx": 5,
+    "F1_4_Tx": 6, "F1_4_Rx": 7,
+    "F2_2_Tx": 12, "F2_2_Rx": 13,
+    "F2_3_Tx": 14, "F2_3_Rx": 15,
+    "F2_4_Tx": 16, "F2_4_Rx": 17,
 }
 
 
