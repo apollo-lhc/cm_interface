@@ -1,0 +1,29 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    # Official python images instead of setup-python: setup-python cannot
+    # install 3.6 on current runners, and CLAUDE.md requires 3.6 compatibility.
+    container: python:${{ matrix.python-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.6", "3.9", "3.12"]
+    steps:
+      # Tests import `cm_interface.*`, so the repo must sit in a directory
+      # named cm_interface and pytest must run from its parent.
+      - uses: actions/checkout@v7
+        with:
+          path: cm_interface
+      - run: pip install flake8 pytest pyserial
+      - name: Lint (syntax errors and undefined names only)
+        run: flake8 cm_interface --count --select=E9,F63,F7,F82 --show-source --statistics
+      # `python -m` puts the cwd (the parent of cm_interface) on sys.path;
+      # bare `pytest` does not, and every test module fails to import.
+      - run: python -m pytest cm_interface/tests/
