@@ -104,6 +104,9 @@ print(power.fsm_state, power.flags, power.supply_states)
 alarm = mcu.read_alarm()
 print(alarm.temp_task_state, alarm.temp_status)
 
+cfg = mcu.read_alarm_config()          # page 0x05 (read-only), map minor >= 2
+print(cfg.alarm_temp_ff, cfg.alarm_volt_threshold_percent)
+
 rt = mcu.read_runtime()                # page 0x06, map minor >= 1 firmware
 print(rt.heap_free_bytes, rt.system_stack_untouched_words, rt.fpga_done)
 print(rt.rtc.isoformat())              # "unset" when the RTC is not valid
@@ -134,16 +137,17 @@ whose bit is not set. `system_info` is never gated: it is how the mask is
 discovered.
 
 **Done.** Python client and in-memory unit tests for pages `0x00` System,
-`0x01` Power, `0x02` Alarm, `0x03` ADC, `0x06` Runtime and `0x7f` Control
-(including the sticky `ZYNQMON_DISABLE_TRANSMIT`). The matching
-firmware (`cm_mcu/projects/cm_mcu/MCU_Reg.c`) serves those pages at map
-minor 1. Nothing here establishes what is installed on a given
+`0x01` Power, `0x02` Alarm, `0x03` ADC, `0x05` Config (read-only), `0x06`
+Runtime and `0x7f` Control (including the sticky `ZYNQMON_DISABLE_TRANSMIT`).
+The matching firmware (`cm_mcu/projects/cm_mcu/MCU_Reg.c`) serves those pages
+at map minor 2. Nothing here establishes what is installed on a given
 target; older firmware may still return `MCU device not implemented`.
 
 **Outstanding** — tracked in `../MCU_UART7_IMPLEMENTATION_PLAN.md`:
 
 - prerequisite fixes B1-B13 (B6, B8 and B9 are done);
-- Phase 2: a Config page `0x05` (the write path needs maintainer sign-off);
+- Phase 2b: the Config page's write path (needs maintainer sign-off); the
+  read-only half is done;
 - Phase 3: the persistent-log pages `0x30`/`0x31`. Their offsets are frozen
   and `read_persistent_log_info()`/`read_persistent_log_entries()` exist, but
   firmware does not serve them — reads return `invalid MCU page`.

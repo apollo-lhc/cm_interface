@@ -42,6 +42,7 @@ class McuPage(IntEnum):
     POWER = 0x01
     ALARM = 0x02
     ADC = 0x03
+    CONFIG = 0x05
     RUNTIME = 0x06
     PERSISTENT_LOG_INFO = 0x30
     PERSISTENT_LOG_DATA = 0x31
@@ -100,6 +101,40 @@ class PersistentLogInfoReg(IntEnum):
     CONTINUATION_COUNT = 0x10    # uint32
 
 
+class ConfigReg(IntEnum):
+    ALARM_TEMP_FF = 0x00         # int16, degrees C
+    ALARM_TEMP_DCDC = 0x02       # int16
+    ALARM_TEMP_TM4C = 0x04       # int16
+    ALARM_TEMP_FPGA = 0x06       # int16
+    ALARM_VOLT_THRESHOLD = 0x08  # uint16, centi-percent on the wire
+
+
+CONFIG_FIELD_WIDTHS = {
+    ConfigReg.ALARM_TEMP_FF: 2,
+    ConfigReg.ALARM_TEMP_DCDC: 2,
+    ConfigReg.ALARM_TEMP_TM4C: 2,
+    ConfigReg.ALARM_TEMP_FPGA: 2,
+    ConfigReg.ALARM_VOLT_THRESHOLD: 2,
+}
+
+
+class AlarmTempDevice(IntEnum):
+    """Matches the firmware's ``enum device`` (``Tasks.h``): FF, DCDC, TM4C, FPGA."""
+
+    FF = 0
+    DCDC = 1
+    TM4C = 2
+    FPGA = 3
+
+
+_ALARM_TEMP_REG = {
+    AlarmTempDevice.FF: ConfigReg.ALARM_TEMP_FF,
+    AlarmTempDevice.DCDC: ConfigReg.ALARM_TEMP_DCDC,
+    AlarmTempDevice.TM4C: ConfigReg.ALARM_TEMP_TM4C,
+    AlarmTempDevice.FPGA: ConfigReg.ALARM_TEMP_FPGA,
+}
+
+
 class RuntimeReg(IntEnum):
     HEAP_FREE = 0x00                      # uint32 bytes
     HEAP_MIN_EVER_FREE = 0x04             # uint32 bytes
@@ -132,6 +167,7 @@ class McuCapability(IntFlag):
     ADC = 1 << 3
     PERSISTENT_LOG = 1 << 5
     CONTROLS = 1 << 6
+    CONFIG = 1 << 7
     RUNTIME = 1 << 8
 
 
@@ -317,6 +353,18 @@ class AlarmSnapshot:
 
 
 @dataclass(frozen=True)
+class McuAlarmConfig:
+    """The alarm thresholds. Temperatures are signed: EEPROM content set
+    earlier through the CLI can lie outside any range the wire would accept."""
+
+    alarm_temp_ff: int
+    alarm_temp_dcdc: int
+    alarm_temp_tm4c: int
+    alarm_temp_fpga: int
+    alarm_volt_threshold_percent: float
+
+
+@dataclass(frozen=True)
 class McuRtc:
     valid: bool
     year: int
@@ -368,6 +416,7 @@ class MCU(Device):
         McuPage.POWER: McuCapability.POWER,
         McuPage.ALARM: McuCapability.ALARMS,
         McuPage.ADC: McuCapability.ADC,
+        McuPage.CONFIG: McuCapability.CONFIG,
         McuPage.RUNTIME: McuCapability.RUNTIME,
         McuPage.PERSISTENT_LOG_INFO: McuCapability.PERSISTENT_LOG,
         McuPage.PERSISTENT_LOG_DATA: McuCapability.PERSISTENT_LOG,
@@ -393,6 +442,12 @@ class MCU(Device):
 
     def _read_u8(self, page: McuPage, offset: IntEnum) -> int:
         return self.read_reg(self._reg(page, offset))[0]
+
+    def _read_u16(self, page: McuPage, offset: IntEnum) -> int:
+        return struct.unpack("<H", self.read_reg(self._reg(page, offset), size=2))[0]
+
+    def _read_i16(self, page: McuPage, offset: IntEnum) -> int:
+        return struct.unpack("<h", self.read_reg(self._reg(page, offset), size=2))[0]
 
     def _read_u32(self, page: McuPage, offset: IntEnum) -> int:
         return int.from_bytes(
@@ -580,6 +635,31 @@ class MCU(Device):
     @property
     def alarm(self) -> AlarmSnapshot:
         return self.read_alarm()
+
+    def read_alarm_config(self, check_capability: bool = True) -> McuAlarmConfig:
+        """Read the Config page (alarm thresholds), read-only.
+
+        Five independent 16-bit policy values, each read in one transaction, so
+        no generation counter is needed and nothing can tear.
+        """
+        page = McuPage.CONFIG
+        self._require_page(page, check_capability)
+        temps = {
+            device: self._read_i16(page, reg)
+            for device, reg in _ALARM_TEMP_REG.items()
+        }
+        centi_percent = self._read_u16(page, ConfigReg.ALARM_VOLT_THRESHOLD)
+        return McuAlarmConfig(
+            alarm_temp_ff=temps[AlarmTempDevice.FF],
+            alarm_temp_dcdc=temps[AlarmTempDevice.DCDC],
+            alarm_temp_tm4c=temps[AlarmTempDevice.TM4C],
+            alarm_temp_fpga=temps[AlarmTempDevice.FPGA],
+            alarm_volt_threshold_percent=centi_percent / 100.0,
+        )
+
+    @property
+    def alarm_config(self) -> McuAlarmConfig:
+        return self.read_alarm_config()
 
     def read_runtime(self, retries: int = 3,
                      check_capability: bool = True) -> McuRuntimeInfo:

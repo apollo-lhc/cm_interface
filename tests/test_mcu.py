@@ -10,6 +10,8 @@ from cm_interface.device.mcu import (
     AdcReg,
     AlarmReg,
     AlarmTaskState,
+    AlarmTempDevice,
+    ConfigReg,
     ControlReg,
     FpgaDone,
     McuBuildType,
@@ -47,7 +49,7 @@ class MemoryMCU(MCU):
         all_caps = (McuCapability.SYSTEM | McuCapability.POWER
                     | McuCapability.ALARMS | McuCapability.ADC
                     | McuCapability.PERSISTENT_LOG | McuCapability.CONTROLS
-                    | McuCapability.RUNTIME)
+                    | McuCapability.RUNTIME | McuCapability.CONFIG)
         self.put(McuPage.SYSTEM, SystemReg.CAPABILITIES,
                  int(all_caps).to_bytes(4, "little"))
 
@@ -366,6 +368,58 @@ class McuRuntimeTest(unittest.TestCase):
         mcu.read_reg = ticking
         with self.assertRaises(McuCoherencyError):
             mcu.read_runtime()
+
+
+class McuConfigTest(unittest.TestCase):
+    def test_alarm_config_decodes_signed_temperatures(self):
+        mcu = MemoryMCU()
+        mcu.put(McuPage.CONFIG, ConfigReg.ALARM_TEMP_FF, (0xFFFB).to_bytes(2, "little"))
+        mcu.put(McuPage.CONFIG, ConfigReg.ALARM_TEMP_DCDC, (70).to_bytes(2, "little"))
+        mcu.put(McuPage.CONFIG, ConfigReg.ALARM_TEMP_TM4C, (70).to_bytes(2, "little"))
+        mcu.put(McuPage.CONFIG, ConfigReg.ALARM_TEMP_FPGA, (81).to_bytes(2, "little"))
+
+        cfg = mcu.read_alarm_config()
+
+        # old EEPROM content set through the CLI can be negative or out of band
+        self.assertEqual(
+            (cfg.alarm_temp_ff, cfg.alarm_temp_dcdc,
+             cfg.alarm_temp_tm4c, cfg.alarm_temp_fpga),
+            (-5, 70, 70, 81),
+        )
+
+    def test_alarm_config_voltage_scaling(self):
+        mcu = MemoryMCU()
+        mcu.put(McuPage.CONFIG, ConfigReg.ALARM_VOLT_THRESHOLD, (500).to_bytes(2, "little"))
+        self.assertEqual(mcu.read_alarm_config().alarm_volt_threshold_percent, 5.0)
+        mcu.put(McuPage.CONFIG, ConfigReg.ALARM_VOLT_THRESHOLD, (1234).to_bytes(2, "little"))
+        self.assertAlmostEqual(mcu.read_alarm_config().alarm_volt_threshold_percent, 12.34)
+
+    def test_alarm_temp_device_order_matches_offsets(self):
+        from cm_interface.device.mcu import _ALARM_TEMP_REG
+
+        for device in AlarmTempDevice:
+            self.assertEqual(
+                _ALARM_TEMP_REG[device],
+                int(ConfigReg.ALARM_TEMP_FF) + 2 * int(device),
+            )
+
+    def test_config_read_gated_by_capability(self):
+        mcu = MemoryMCU()
+        _put_u32(mcu, McuPage.SYSTEM, SystemReg.CAPABILITIES, McuCapability.SYSTEM)
+
+        with self.assertRaises(McuCapabilityUnavailable):
+            mcu.read_alarm_config()
+
+        self.assertFalse([r for r in mcu.reads if r[0] == int(McuPage.CONFIG)])
+
+    def test_config_reads_use_one_transaction_per_field(self):
+        mcu = MemoryMCU()
+
+        mcu.read_alarm_config()
+
+        config_reads = [r for r in mcu.reads if r[0] == int(McuPage.CONFIG)]
+        self.assertEqual([(r[1], r[2]) for r in config_reads],
+                         [(0, 2), (2, 2), (4, 2), (6, 2), (8, 2)])
 
 
 class McuCapabilityGatingTest(unittest.TestCase):

@@ -89,6 +89,17 @@ def exercise_system(mcu):
     _run_section("System (0x00)", go)
 
 
+def exercise_config(mcu):
+    def go():
+        cfg = mcu.read_alarm_config()
+        print(f"  temp threshold FF:    {cfg.alarm_temp_ff} C")
+        print(f"  temp threshold DCDC:  {cfg.alarm_temp_dcdc} C")
+        print(f"  temp threshold TM4C:  {cfg.alarm_temp_tm4c} C")
+        print(f"  temp threshold FPGA:  {cfg.alarm_temp_fpga} C")
+        print(f"  voltage threshold:    {cfg.alarm_volt_threshold_percent:.2f} %")
+    _run_section("Config (0x05, read-only)", go)
+
+
 def exercise_runtime(mcu):
     def go():
         info = mcu.read_runtime()
@@ -235,6 +246,7 @@ def main():
     exercise_system(mcu)
     exercise_power(mcu)
     exercise_alarm(mcu)
+    exercise_config(mcu)
     exercise_runtime(mcu)
     exercise_adc(mcu)
     exercise_persistent_log(mcu)

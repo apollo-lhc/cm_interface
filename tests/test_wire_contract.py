@@ -111,6 +111,7 @@ def test_pages(defines):
         ("MCU_REG_PAGE_POWER", mcu.McuPage.POWER),
         ("MCU_REG_PAGE_ALARM", mcu.McuPage.ALARM),
         ("MCU_REG_PAGE_ADC", mcu.McuPage.ADC),
+        ("MCU_REG_PAGE_CONFIG", mcu.McuPage.CONFIG),
         ("MCU_REG_PAGE_RUNTIME", mcu.McuPage.RUNTIME),
         ("MCU_REG_PAGE_CONTROL", mcu.McuPage.CONTROL),
     ])
@@ -134,6 +135,24 @@ def test_system_page(defines):
         ("SYS_OFF_BUILD_TYPE", mcu.SystemReg.BUILD_TYPE),
         ("SYS_OFF_BUILD_TIME", mcu.SystemReg.BUILD_TIME),
     ])
+
+
+def test_config_page(defines):
+    _check(defines, [
+        ("CFG_OFF_ALARM_TEMP_FF", mcu.ConfigReg.ALARM_TEMP_FF),
+        ("CFG_OFF_ALARM_TEMP_DCDC", mcu.ConfigReg.ALARM_TEMP_DCDC),
+        ("CFG_OFF_ALARM_TEMP_TM4C", mcu.ConfigReg.ALARM_TEMP_TM4C),
+        ("CFG_OFF_ALARM_TEMP_FPGA", mcu.ConfigReg.ALARM_TEMP_FPGA),
+        ("CFG_OFF_ALARM_VOLT_CPCT", mcu.ConfigReg.ALARM_VOLT_THRESHOLD),
+    ])
+    # field widths come through #defines, not a regex over MCU_Reg.c
+    assert _resolve("CFG_LEN_ALARM_TEMP", defines) == 2
+    assert _resolve("CFG_LEN_ALARM_VOLT", defines) == 2
+    for temp_reg in (mcu.ConfigReg.ALARM_TEMP_FF, mcu.ConfigReg.ALARM_TEMP_DCDC,
+                     mcu.ConfigReg.ALARM_TEMP_TM4C, mcu.ConfigReg.ALARM_TEMP_FPGA):
+        assert mcu.CONFIG_FIELD_WIDTHS[temp_reg] == _resolve("CFG_LEN_ALARM_TEMP", defines)
+    assert mcu.CONFIG_FIELD_WIDTHS[mcu.ConfigReg.ALARM_VOLT_THRESHOLD] == \
+        _resolve("CFG_LEN_ALARM_VOLT", defines)
 
 
 def test_runtime_page(defines):
@@ -213,6 +232,7 @@ def test_capability_and_health_bits(defines):
         ("MCU_CAP_ADC", mcu.McuCapability.ADC),
         ("MCU_CAP_PERSISTENT_LOG", mcu.McuCapability.PERSISTENT_LOG),
         ("MCU_CAP_CONTROLS", mcu.McuCapability.CONTROLS),
+        ("MCU_CAP_CONFIG", mcu.McuCapability.CONFIG),
         ("MCU_CAP_RUNTIME", mcu.McuCapability.RUNTIME),
         ("MCU_HEALTH_POWER_FAULT", mcu.McuHealth.POWER_FAULT),
         ("MCU_HEALTH_TEMPERATURE_ALARM", mcu.McuHealth.TEMPERATURE_ALARM),
@@ -249,6 +269,10 @@ def test_map_version_and_array_lengths(defines):
     # page 0x00 build-time field
     assert _resolve("SYS_BUILD_TIME_LEN", defines) == mcu.SYS_BUILD_TIME_LEN
 
+    # page 0x05: used length covers the last field's offset plus its width
+    assert _resolve("CFG_PAGE_USED_LEN", defines) >= max(
+        int(m) + mcu.CONFIG_FIELD_WIDTHS[m] for m in mcu.ConfigReg)
+
     # each page's used length must leave room for its last field: a real
     # relationship rather than a literal compared with a literal
     assert _resolve("RT_PAGE_USED_LEN", defines) >= max(
@@ -261,7 +285,8 @@ def test_no_python_offset_crosses_a_page_boundary():
     """Device.read_reg checks reg+size <= 0xFFFF but not offset+size <= 0x100,
     so a field near the end of a page would silently bump the page byte."""
     for enum_cls in (mcu.SystemReg, mcu.PowerReg, mcu.AlarmReg,
-                     mcu.ControlReg, mcu.PersistentLogInfoReg, mcu.RuntimeReg):
+                     mcu.ControlReg, mcu.PersistentLogInfoReg, mcu.RuntimeReg,
+                     mcu.ConfigReg):
         for member in enum_cls:
             assert int(member) + 4 <= 0x100, (
                 "%s.%s at 0x%02x leaves no room for a 4-byte read"
@@ -269,10 +294,11 @@ def test_no_python_offset_crosses_a_page_boundary():
             )
 
 
-_OFFSET_PREFIXES = ("SYS_OFF_", "RT_OFF_")
+_OFFSET_PREFIXES = ("SYS_OFF_", "RT_OFF_", "CFG_OFF_")
 _ENUM_FOR_PREFIX = {
     "SYS_OFF_": mcu.SystemReg,
     "RT_OFF_": mcu.RuntimeReg,
+    "CFG_OFF_": mcu.ConfigReg,
 }
 
 

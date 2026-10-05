@@ -23,7 +23,7 @@ Read-only.
 | --- | ---: | --- |
 | `0x00` | 4 | ASCII magic `CMCU` |
 | `0x04` | 1 | map major version (`1`) |
-| `0x05` | 1 | map minor version (`1`) |
+| `0x05` | 1 | map minor version (`2`) |
 | `0x06` | 1 | hardware revision |
 | `0x07` | 1 | ADC channel count (`21`) |
 | `0x08` | 4 | capability bitmap |
@@ -59,9 +59,9 @@ Capability bits (bitmap at `0x08`):
 | 4 | reserved | — |
 | 5 | `PERSISTENT_LOG` | no |
 | 6 | `CONTROLS` | yes |
-| 7 | `CONFIG` | no (reserved for page `0x05`, not yet implemented) |
+| 7 | `CONFIG` | yes (page `0x05`, read-only; map minor ≥ 2) |
 | 8 | `RUNTIME` | yes |
-| 9 | `CONFIG_WRITE` | no (reserved, not yet implemented) |
+| 9 | `CONFIG_WRITE` | no (reserved for the page `0x05` write path, not yet implemented) |
 
 A capability bit is set only once its page is fully implemented; a client
 must not assume a page works just because its offsets are frozen here.
@@ -182,6 +182,40 @@ ADC channel order (page `0x03`):
 5  F1_VCCINT       12  F2_VCCAUX        19 F2_TEMP
 6  F1_AVCC         13  CUR_V_12V        20 TM4C_TEMP
 ```
+
+## Page `0x05` — Config — **implemented (read-only)**
+
+Read-only at map minor 2; requires `CONFIG` (capability bit 7). Writes to this
+page return `MCU register is read only`. A write path, with its own capability
+bit (`CONFIG_WRITE`, bit 9), is planned but not implemented and is gated on
+maintainer sign-off.
+
+The alarm thresholds, which a remote client previously could not see at all.
+Each field is a naturally-aligned 16-bit halfword (a single atomic access on
+Cortex-M4) and a read must stay inside one field, so `r MC 0 5 0 4` is
+rejected rather than returning two thresholds. The five values are independent
+policy settings, not a causally-correlated snapshot, so there is **no
+generation counter**, for the same reason pages `0x02` and `0x03` have none.
+
+| Offset | Size | Field |
+| --- | ---: | --- |
+| `0x00` | 2 | Firefly temperature threshold, `int16` °C |
+| `0x02` | 2 | DCDC temperature threshold, `int16` °C |
+| `0x04` | 2 | TM4C temperature threshold, `int16` °C |
+| `0x06` | 2 | FPGA temperature threshold, `int16` °C |
+| `0x08` | 2 | voltage-alarm threshold, `uint16` **centi-percent** (`500` = 5 %) |
+
+Offsets `0x0a` and up are an undeclared hole.
+
+The four temperature offsets follow the firmware's `enum device` order (FF,
+DCDC, TM4C, FPGA), the same order the CLI and the EEPROM table use.
+
+Temperatures are **signed and unclamped on read**: EEPROM content set through
+the CLI can lie outside any range a future wire write would accept, and a
+negative value reads back in two's complement. The voltage threshold is
+fixed-point rather than a float so that no float codec is needed on the MCU
+pages, which otherwise carry only `binary16` ADC values. On read the firmware
+clamps the internal value to `0`-`65535` centi-percent before converting.
 
 ## Page `0x06` — Runtime — **implemented**
 

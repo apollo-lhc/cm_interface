@@ -77,6 +77,11 @@ The Python `MCU` client for ProgCom device `MC 0` follows
   status/latch pair is an 8-byte `read_block`, i.e. **two** 4-byte wire
   transactions, not one: the firmware-side group atomicity argument holds,
   but the pair is not read atomically over the wire;
+- `read_alarm_config()` / `alarm_config` returns the Config page `0x05` alarm
+  thresholds (read-only at map minor 2): four signed `int16` °C temperature
+  thresholds and the voltage threshold in percent (`uint16` centi-percent on the
+  wire). Five independent halfwords, one transaction each, no generation
+  counter. Temperatures are not clamped on read;
 - `read_runtime()` / `runtime` returns the Runtime page `0x06` (heap,
   system-stack headroom, ZynqMon transmit flag, FPGA DONE pins, RTC). The RTC
   is two independent words read time, date, time and retried on a rollover;
@@ -99,16 +104,16 @@ bypasses it; `capabilities(refresh=True)` re-reads the cached mask.
 
 **Done:** the Python client and memory-backed unit tests, and the matching
 firmware — `cm_mcu/projects/cm_mcu/MCU_Reg.c` and `MCU_Reg.h` — which serves
-pages `0x00` System, `0x01` Power, `0x02` Alarm, `0x03` ADC, `0x06` Runtime and
-`0x7f` Control at map minor 1. Nothing here establishes what is
+pages `0x00` System, `0x01` Power, `0x02` Alarm, `0x03` ADC, `0x05` Config
+(read-only), `0x06` Runtime and `0x7f` Control at map minor 2. Nothing here establishes what is
 installed on a given target; older firmware may still answer
 `MCU device not implemented`.
 
 **Outstanding** — all in `../MCU_UART7_IMPLEMENTATION_PLAN.md`:
 
 - prerequisite fixes B1-B13 (B6, B8 and B9 are done);
-- Phase 2 (Config page `0x05`; writes need maintainer sign-off),
-  Phase 3 (persistent log). Pages `0x30`/`0x31` are frozen but **not**
+- Phase 2b (Config page `0x05` write path; needs maintainer sign-off; the
+  read-only half is done), Phase 3 (persistent log). Pages `0x30`/`0x31` are frozen but **not**
   served: reads return `e invalid MCU page`.
 
 `MCU_REGISTER_MAP.md` (in this directory) plus `MCU_Reg.h` are the
