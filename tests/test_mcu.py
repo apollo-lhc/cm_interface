@@ -1,3 +1,5 @@
+import contextlib
+import io
 import math
 import struct
 import unittest
@@ -9,6 +11,8 @@ from cm_interface.device.mcu import (
     AlarmReg,
     AlarmTaskState,
     ControlReg,
+    FpgaDone,
+    McuBuildType,
     McuCapability,
     McuControlCommand,
     McuPage,
@@ -18,9 +22,18 @@ from cm_interface.device.mcu import (
     PowerFlags,
     PowerFsmState,
     PowerReg,
+    RuntimeReg,
     SystemReg,
     TemperatureAlarmBit,
     describe_reset_cause,
+)
+from cm_interface.errors import (
+    CMError,
+    McuCapabilityUnavailable,
+    McuCoherencyError,
+    McuMagicError,
+    McuMapVersionError,
+    McuProtocolError,
 )
 
 
@@ -29,6 +42,14 @@ class MemoryMCU(MCU):
         self.pages = {page: bytearray(256) for page in McuPage}
         self.reads = []
         self.writes = []
+        # Advertise every page by default so tests exercise the readers, not
+        # the gate; gating tests overwrite the word explicitly.
+        all_caps = (McuCapability.SYSTEM | McuCapability.POWER
+                    | McuCapability.ALARMS | McuCapability.ADC
+                    | McuCapability.PERSISTENT_LOG | McuCapability.CONTROLS
+                    | McuCapability.RUNTIME)
+        self.put(McuPage.SYSTEM, SystemReg.CAPABILITIES,
+                 int(all_caps).to_bytes(4, "little"))
 
     def put(self, page, offset, data):
         self.pages[int(page)][int(offset):int(offset) + len(data)] = data
@@ -178,6 +199,289 @@ class McuTest(unittest.TestCase):
             mcu.writes[-1],
             (int(McuPage.CONTROL), int(ControlReg.COMMAND), bytes((4,))),
         )
+
+
+def _put_u32(mcu, page, offset, value):
+    mcu.put(page, offset, int(value).to_bytes(4, "little"))
+
+
+def _system_mcu(minor):
+    mcu = MemoryMCU()
+    mcu.put(McuPage.SYSTEM, SystemReg.MAGIC, b"CMCU")
+    mcu.put(McuPage.SYSTEM, SystemReg.MAP_MAJOR, bytes((1, minor)))
+    return mcu
+
+
+class McuSystemPhase1Test(unittest.TestCase):
+    def test_system_info_new_fields_when_minor_1(self):
+        mcu = _system_mcu(1)
+        _put_u32(mcu, McuPage.SYSTEM, SystemReg.FF_USER_MASK, 0x00FF00FF)
+        _put_u32(mcu, McuPage.SYSTEM, SystemReg.FF_PRESENT_MASK, 0x0F0F0F0F)
+        mcu.put(McuPage.SYSTEM, SystemReg.BUILD_TYPE, bytes((1,)))
+        mcu.put(McuPage.SYSTEM, SystemReg.BUILD_TIME,
+                b"12:34:56, Sep 20 2026".ljust(24, b"\0"))
+
+        info = mcu.system_info
+
+        self.assertEqual(info.ff_user_mask, 0x00FF00FF)
+        self.assertEqual(info.ff_present_mask, 0x0F0F0F0F)
+        self.assertEqual(info.build_type, McuBuildType.DEBUG)
+        self.assertEqual(info.build_time, "12:34:56, Sep 20 2026")
+
+    def test_system_info_new_fields_none_when_minor_0(self):
+        mcu = _system_mcu(0)
+
+        info = mcu.system_info
+
+        self.assertEqual(
+            (info.ff_user_mask, info.ff_present_mask,
+             info.build_type, info.build_time),
+            (None, None, None, None),
+        )
+        # Minor-0 firmware answers 0x54+ with "invalid MCU address".
+        self.assertFalse([r for r in mcu.reads
+                          if r[0] == int(McuPage.SYSTEM) and r[1] >= 0x54])
+
+    def test_firefly_masks_retry_on_change(self):
+        mcu = MemoryMCU()
+        _put_u32(mcu, McuPage.SYSTEM, SystemReg.FF_USER_MASK, 1)
+        _put_u32(mcu, McuPage.SYSTEM, SystemReg.FF_PRESENT_MASK, 2)
+        original = mcu.read_reg
+        user_reg = (int(McuPage.SYSTEM) << 8) | int(SystemReg.FF_USER_MASK)
+        user_reads = {"n": 0}
+
+        def moving_once(reg, size=1):
+            value = original(reg, size)
+            if int(reg) == user_reg:
+                user_reads["n"] += 1
+                if user_reads["n"] == 1:   # change right after the first read
+                    _put_u32(mcu, McuPage.SYSTEM, SystemReg.FF_USER_MASK, 7)
+            return value
+
+        mcu.read_reg = moving_once
+
+        self.assertEqual(mcu._read_firefly_masks(), (7, 2))
+        # attempt 1 reads the pair twice and disagrees; attempt 2 confirms
+        self.assertEqual(user_reads["n"], 4)
+
+    def test_firefly_masks_raise_when_never_stable(self):
+        mcu = MemoryMCU()
+        original = mcu.read_reg
+        counter = {"n": 0}
+
+        def moving(reg, size=1):
+            counter["n"] += 1
+            _put_u32(mcu, McuPage.SYSTEM, SystemReg.FF_USER_MASK, counter["n"])
+            return original(reg, size)
+
+        mcu.read_reg = moving
+        with self.assertRaises(McuCoherencyError):
+            mcu._read_firefly_masks()
+
+
+class McuRuntimeTest(unittest.TestCase):
+    def _runtime_mcu(self):
+        mcu = MemoryMCU()
+        page = McuPage.RUNTIME
+        _put_u32(mcu, page, RuntimeReg.HEAP_FREE, 20000)
+        _put_u32(mcu, page, RuntimeReg.HEAP_MIN_EVER_FREE, 15000)
+        _put_u32(mcu, page, RuntimeReg.HEAP_TOTAL, 25600)
+        _put_u32(mcu, page, RuntimeReg.SYSTEM_STACK_UNTOUCHED_WORDS, 90)
+        _put_u32(mcu, page, RuntimeReg.SYSTEM_STACK_TOTAL_WORDS, 128)
+        mcu.put(page, RuntimeReg.ZYNQMON_TRANSMIT_ENABLED, bytes((1,)))
+        mcu.put(page, RuntimeReg.FPGA_DONE, bytes((3,)))
+        return mcu
+
+    @staticmethod
+    def _set_rtc(mcu, year, month, day, hour, minute, second, valid=1):
+        _put_u32(mcu, McuPage.RUNTIME, RuntimeReg.RTC_DATE,
+                 (year << 16) | (month << 8) | day)
+        _put_u32(mcu, McuPage.RUNTIME, RuntimeReg.RTC_TIME,
+                 (valid << 24) | (hour << 16) | (minute << 8) | second)
+
+    def test_runtime_snapshot(self):
+        mcu = self._runtime_mcu()
+        self._set_rtc(mcu, 2026, 9, 20, 23, 30, 5)
+
+        info = mcu.read_runtime()
+
+        self.assertEqual(
+            (info.heap_free_bytes, info.heap_min_ever_free_bytes,
+             info.heap_total_bytes, info.system_stack_untouched_words,
+             info.system_stack_total_words),
+            (20000, 15000, 25600, 90, 128),
+        )
+        self.assertIs(info.zynqmon_transmit_enabled, True)
+        self.assertEqual(info.fpga_done, FpgaDone.F1 | FpgaDone.F2)
+
+    def test_runtime_rtc_valid(self):
+        mcu = self._runtime_mcu()
+        self._set_rtc(mcu, 2026, 9, 20, 23, 30, 5)
+
+        rtc = mcu.read_runtime().rtc
+
+        self.assertTrue(rtc.valid)
+        self.assertEqual(rtc.isoformat(), "2026-09-20T23:30:05")
+
+    def test_runtime_rtc_unset_is_invalid(self):
+        mcu = self._runtime_mcu()
+
+        rtc = mcu.read_runtime().rtc
+
+        self.assertFalse(rtc.valid)
+        self.assertEqual(rtc.isoformat(), "unset")
+
+    def test_runtime_rtc_retries_on_second_rollover(self):
+        mcu = self._runtime_mcu()
+        self._set_rtc(mcu, 2026, 9, 20, 23, 30, 5)
+        original = mcu.read_reg
+        time_reg = (int(McuPage.RUNTIME) << 8) | int(RuntimeReg.RTC_TIME)
+        seen = {"n": 0}
+
+        def rolling(reg, size=1):
+            value = original(reg, size)
+            if int(reg) == time_reg:
+                seen["n"] += 1
+                if seen["n"] == 1:   # tick right after the first time read
+                    self._set_rtc(mcu, 2026, 9, 20, 23, 30, 6)
+            return value
+
+        mcu.read_reg = rolling
+
+        self.assertEqual(mcu.read_runtime().rtc.isoformat(), "2026-09-20T23:30:06")
+
+    def test_runtime_rtc_raises_when_never_stable(self):
+        mcu = self._runtime_mcu()
+        original = mcu.read_reg
+        time_reg = (int(McuPage.RUNTIME) << 8) | int(RuntimeReg.RTC_TIME)
+        seen = {"n": 0}
+
+        def ticking(reg, size=1):
+            value = original(reg, size)
+            if int(reg) == time_reg:
+                seen["n"] += 1
+                self._set_rtc(mcu, 2026, 9, 20, 23, 30, seen["n"] % 60)
+            return value
+
+        mcu.read_reg = ticking
+        with self.assertRaises(McuCoherencyError):
+            mcu.read_runtime()
+
+
+class McuCapabilityGatingTest(unittest.TestCase):
+    def _system_only(self):
+        mcu = MemoryMCU()
+        _put_u32(mcu, McuPage.SYSTEM, SystemReg.CAPABILITIES, McuCapability.SYSTEM)
+        return mcu
+
+    def test_capability_gating_blocks_unadvertised_page(self):
+        mcu = self._system_only()
+
+        with self.assertRaises(McuCapabilityUnavailable) as ctx:
+            mcu.read_runtime()
+
+        self.assertIsInstance(ctx.exception, CMError)
+        self.assertFalse([r for r in mcu.reads if r[0] == int(McuPage.RUNTIME)])
+
+    def test_capability_gating_bypass(self):
+        mcu = self._system_only()
+
+        mcu.read_runtime(check_capability=False)
+
+        self.assertTrue([r for r in mcu.reads if r[0] == int(McuPage.RUNTIME)])
+
+    def test_capability_gating_covers_existing_pages(self):
+        mcu = self._system_only()
+        for call in (mcu.read_adc, mcu.read_power, mcu.read_alarm,
+                     mcu.read_persistent_log_info,
+                     mcu.read_persistent_log_entries):
+            with self.assertRaises(McuCapabilityUnavailable):
+                call()
+        with self.assertRaises(McuCapabilityUnavailable):
+            mcu.send_control(McuControlCommand.CLEAR_POWER_FAULT)
+        self.assertEqual(mcu.writes, [])
+
+    def test_system_info_is_never_gated(self):
+        mcu = _system_mcu(0)
+        _put_u32(mcu, McuPage.SYSTEM, SystemReg.CAPABILITIES, 0)
+
+        mcu.system_info   # must not raise
+
+    def test_capabilities_are_cached_then_refreshed(self):
+        mcu = MemoryMCU()
+        cap_reg = (int(McuPage.SYSTEM) << 8) | int(SystemReg.CAPABILITIES)
+
+        def cap_reads():
+            return len([r for r in mcu.reads
+                        if (r[0] << 8 | r[1]) == cap_reg])
+
+        mcu.read_runtime()
+        mcu.read_adc()
+        self.assertEqual(cap_reads(), 1)
+        mcu.capabilities(refresh=True)
+        self.assertEqual(cap_reads(), 2)
+
+    def test_zynqmon_control_commands(self):
+        mcu = MemoryMCU()
+
+        mcu.send_control(McuControlCommand.ZYNQMON_DISABLE_TRANSMIT)
+
+        self.assertEqual(mcu.writes[-1], (0x7F, 0x00, b"\x06"))
+        mcu.send_control(McuControlCommand.ZYNQMON_ENABLE_TRANSMIT)
+        self.assertEqual(mcu.writes[-1], (0x7F, 0x00, b"\x05"))
+
+
+class ReadAsciiTest(unittest.TestCase):
+    def test_read_ascii_tolerates_erased_field(self):
+        mcu = MemoryMCU()
+        mcu.put(McuPage.SYSTEM, SystemReg.GIT_VERSION, b"\xff" * 20)
+
+        self.assertEqual(
+            mcu.read_ascii((int(McuPage.SYSTEM) << 8) | int(SystemReg.GIT_VERSION), 20),
+            "",
+        )
+
+
+class McuProtocolErrorTest(unittest.TestCase):
+    def test_bad_magic_raises_magic_error(self):
+        mcu = MemoryMCU()
+        mcu.put(McuPage.SYSTEM, SystemReg.MAGIC, b"NOPE")
+        with self.assertRaises(McuMagicError) as ctx:
+            mcu.system_info
+        self.assertIsInstance(ctx.exception, McuProtocolError)
+        self.assertIsInstance(ctx.exception, CMError)
+
+    def test_unsupported_major_raises_map_version_error(self):
+        mcu = MemoryMCU()
+        mcu.put(McuPage.SYSTEM, SystemReg.MAGIC, b"CMCU")
+        mcu.put(McuPage.SYSTEM, SystemReg.MAP_MAJOR, bytes((99,)))
+        with self.assertRaises(McuMapVersionError) as ctx:
+            mcu.system_info
+        self.assertIsInstance(ctx.exception, McuProtocolError)
+
+    def test_unstable_power_generation_raises_coherency_error(self):
+        mcu = MemoryMCU()
+        # An odd generation means a publish is in progress on every attempt.
+        mcu.put(McuPage.POWER, PowerReg.GENERATION, (1).to_bytes(4, "little"))
+        with self.assertRaises(McuCoherencyError) as ctx:
+            mcu.read_power()
+        self.assertIsInstance(ctx.exception, McuProtocolError)
+
+
+class ExerciseMcuTest(unittest.TestCase):
+    def test_run_section_degrades_runtime_error_to_a_warning(self):
+        from cm_interface import exercise_mcu
+
+        def boom():
+            raise RuntimeError("MCU map version mismatch")
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            exercise_mcu._run_section("System (0x00)", boom)
+            exercise_mcu._run_section("after", lambda: print("still ran"))
+
+        self.assertIn("MCU map version mismatch", out.getvalue())
+        self.assertIn("still ran", out.getvalue())
 
 
 if __name__ == "__main__":

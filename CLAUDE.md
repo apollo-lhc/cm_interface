@@ -20,11 +20,17 @@ covers what isn't obvious from reading the code.
   time. When adding a new method that writes to real hardware with a
   physical precondition, prefer that pattern over silently trusting the
   caller.
+- **MCU page access is gated on the firmware capability mask.** The `MCU`
+  client raises `McuCapabilityUnavailable` rather than issuing a read the
+  firmware will reject (`check_capability=False` bypasses it). Same "refuse
+  rather than succeed quietly" rule as `reset_all_lga80d_snapshots`.
 
 ## Testing
 
 - `tests/*.py` — pure software, `FakeUART`-based, no hardware. Run from the
-  `int_test` parent directory: `pytest cm_interface/tests/`. Must stay
+  `int_test` parent directory: `pytest cm_interface/tests/`. The firmware
+  contract tests in `test_wire_contract.py` skip unless `CM_MCU_ROOT` points at
+  the firmware checkout (e.g. `apollo_cm_mcu`). Must stay
   hardware-free; never add a test here that opens a real serial port.
 - `tests/hw/` — opt-in, hardware-runnable companion suite (env-var gated,
   see `tests/hw/README.md`). Keep new hardware checks here, not in the

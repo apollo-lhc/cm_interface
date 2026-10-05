@@ -128,7 +128,9 @@ class Device(ABC):
     def read_ascii(self, reg: int, length: int) -> str:
         """Read and trim a fixed-width ASCII field."""
         raw = self.read_block(reg, length)
-        return raw.decode("ascii").rstrip("\x00\xff ")
+        # Strip padding on the bytes: an erased 0xFF-filled field is not ASCII,
+        # so decoding first would raise before the strip could matter.
+        return raw.rstrip(b"\x00\xff ").decode("ascii", errors="replace")
 
     def update_bits(self, reg: int, mask: int, value: int) -> int:
         """Update selected bits of a one-byte register and return the result."""

@@ -85,8 +85,8 @@ f1.write_reg(0x00, 0x12345678, size=4)
 ## MCU endpoint status
 
 `Registry` always exposes the command-module MCU as `reg.mcu` and through
-`reg.get_mcu()`. The current Python client implements the read-only Phase-1
-interface for ProgCom device `MC 0`:
+`reg.get_mcu()`. The current Python client implements the Phase-1 interface
+for ProgCom device `MC 0` (read-only pages plus the Control page):
 
 ```python
 from cm_interface.device.mcu import McuControlCommand
@@ -104,10 +104,17 @@ print(power.fsm_state, power.flags, power.supply_states)
 alarm = mcu.read_alarm()
 print(alarm.temp_task_state, alarm.temp_status)
 
+rt = mcu.read_runtime()                # page 0x06, map minor >= 1 firmware
+print(rt.heap_free_bytes, rt.system_stack_untouched_words, rt.fpga_done)
+print(rt.rtc.isoformat())              # "unset" when the RTC is not valid
+
 mcu.send_control(McuControlCommand.CLEAR_ALARM_LATCHES)
 ```
 
-`system_info` validates the `CMCU` magic and map major version 1. ADC values
+`system_info` validates the `CMCU` magic and map major version 1. On map
+minor >= 1 firmware it also returns `ff_user_mask`, `ff_present_mask`,
+`build_type` and `build_time`; on minor 0 these are `None` and are not even
+requested. ADC values
 are 21 little-endian IEEE-754 binary16 values, selectable by channel name; an
 unpublished channel reads back as `NaN` rather than carrying a separate
 validity bitmap. `read_power()`
@@ -119,18 +126,23 @@ atomically as a group by firmware. The temperature status/latch pair is an
 one; the firmware-side grouping still holds, but the pair is not fetched
 atomically over the wire.
 
+**Capability gating.** Every page-scoped method checks the firmware capability
+mask (read once, cached; `mcu.capabilities(refresh=True)` re-reads it, e.g.
+after a reflash) and raises `McuCapabilityUnavailable` instead of issuing a
+read the firmware would reject. Pass `check_capability=False` to probe a page
+whose bit is not set. `system_info` is never gated: it is how the mask is
+discovered.
+
 **Done.** Python client and in-memory unit tests for pages `0x00` System,
-`0x01` Power, `0x02` Alarm, `0x03` ADC and `0x7f` Control. The matching
-firmware (`cm_mcu/projects/cm_mcu/MCU_Reg.c`, branch `feature/sm_uart`) serves
-those five pages. Nothing here establishes what is installed on a given
+`0x01` Power, `0x02` Alarm, `0x03` ADC, `0x06` Runtime and `0x7f` Control
+(including the sticky `ZYNQMON_DISABLE_TRANSMIT`). The matching
+firmware (`cm_mcu/projects/cm_mcu/MCU_Reg.c`) serves those pages at map
+minor 1. Nothing here establishes what is installed on a given
 target; older firmware may still return `MCU device not implemented`.
 
 **Outstanding** — tracked in `../MCU_UART7_IMPLEMENTATION_PLAN.md`:
 
-- prerequisite fixes B1-B13. B6/B9 (two undocumented firmware error strings)
-  keep `tests/test_wire_contract.py` failing and block Phase 1;
-- Phase 1: new read-only System fields, a Runtime page `0x06`, more Control
-  commands;
+- prerequisite fixes B1-B13 (B6, B8 and B9 are done);
 - Phase 2: a Config page `0x05` (the write path needs maintainer sign-off);
 - Phase 3: the persistent-log pages `0x30`/`0x31`. Their offsets are frozen
   and `read_persistent_log_info()`/`read_persistent_log_entries()` exist, but
@@ -270,6 +282,14 @@ the MCU, and FPGA objects are still populated. Use a named preset or call
 preset. Use `reg.fireflies.get(location)` when an empty or unused slot is
 expected. Register operations raise `CMError` subclasses; their chained cause
 may contain the MCU response, such as `Firefly not enabled`.
+
+MCU register-map problems raise `McuProtocolError` subclasses (all `CMError`):
+`McuMagicError` (System page lacks the `CMCU` magic), `McuMapVersionError`
+(unsupported map major version) and `McuCoherencyError` (the Power snapshot
+changed during every read attempt). **Breaking change:** these were previously
+bare `RuntimeError`s, so a caller that caught `RuntimeError` for them must now
+catch `CMError` (or `McuProtocolError`). `Registry.reset_all_lga80d_snapshots`
+still raises `RuntimeError` for its `force=True` and power-state checks.
 
 The worked `examples.py` runner handles these expected conditions: missing
 preset entries are reported as skips, per-device communication failures do not

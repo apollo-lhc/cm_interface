@@ -29,12 +29,15 @@ if not __package__:
     if _package_parent not in sys.path:
         sys.path.insert(0, _package_parent)
 
-from cm_interface.errors import CMError
+from cm_interface.errors import CMError, McuCapabilityUnavailable
 from cm_interface.registry import Registry
 from cm_interface.device.mcu import McuControlCommand, describe_reset_cause
 
 
-EXPECTED_HARDWARE_ERRORS = (CMError, OSError, TimeoutError, ValueError)
+# RuntimeError is here on purpose: _run_section is a per-section warning
+# boundary, so a stray RuntimeError from any layer (e.g. a map-version mismatch
+# against old firmware) must degrade to a warning, not skip the later sections.
+EXPECTED_HARDWARE_ERRORS = (CMError, OSError, TimeoutError, ValueError, RuntimeError)
 
 
 def _format_error(exc):
@@ -55,6 +58,8 @@ def _run_section(title, fn):
     print(f"\n--- {title} " + "-" * max(0, 50 - len(title)))
     try:
         fn()
+    except McuCapabilityUnavailable:
+        print("  not advertised by firmware")
     except EXPECTED_HARDWARE_ERRORS as exc:
         print(f"  ⚠ {_format_error(exc)}")
 
@@ -72,7 +77,29 @@ def exercise_system(mcu):
         print(f"  git version:      {info.git_version!r}")
         print(f"  capabilities:     {info.capabilities!r}")
         print(f"  health:           {info.health!r}")
+        if info.ff_user_mask is None:
+            for label in ("ff user mask", "ff present mask", "build type",
+                          "build time"):
+                print(f"  {label + ':':<17s} (requires map minor >= 1)")
+        else:
+            print(f"  ff user mask:     0x{info.ff_user_mask:08X}")
+            print(f"  ff present mask:  0x{info.ff_present_mask:08X}")
+            print(f"  build type:       {info.build_type!r}")
+            print(f"  build time:       {info.build_time!r}")
     _run_section("System (0x00)", go)
+
+
+def exercise_runtime(mcu):
+    def go():
+        info = mcu.read_runtime()
+        print(f"  heap free/min/total: {info.heap_free_bytes} / "
+              f"{info.heap_min_ever_free_bytes} / {info.heap_total_bytes} bytes")
+        print(f"  system stack:        {info.system_stack_untouched_words} of "
+              f"{info.system_stack_total_words} words untouched")
+        print(f"  zynqmon transmit:    {info.zynqmon_transmit_enabled}")
+        print(f"  fpga done:           {info.fpga_done!r}")
+        print(f"  rtc:                 {info.rtc.isoformat()}")
+    _run_section("Runtime (0x06)", go)
 
 
 def exercise_adc(mcu):
@@ -130,6 +157,10 @@ def exercise_persistent_log(mcu):
 def send_control(mcu, command_name, assume_yes):
     command = McuControlCommand[command_name]
     if not assume_yes:
+        if command is McuControlCommand.ZYNQMON_DISABLE_TRANSMIT:
+            print("WARNING: ZYNQMON_DISABLE_TRANSMIT is sticky. Nothing re-enables "
+                  "telemetry except the CLI ('zmon enable') or a reboot, so the "
+                  "blade stays dark to the Zynq if this client exits or loses its link.")
         reply = input(
             f"Send Control command {command.name} (0x{int(command):02X}) to "
             f"live hardware? [y/N] "
@@ -204,6 +235,7 @@ def main():
     exercise_system(mcu)
     exercise_power(mcu)
     exercise_alarm(mcu)
+    exercise_runtime(mcu)
     exercise_adc(mcu)
     exercise_persistent_log(mcu)
     print()

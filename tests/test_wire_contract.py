@@ -111,6 +111,7 @@ def test_pages(defines):
         ("MCU_REG_PAGE_POWER", mcu.McuPage.POWER),
         ("MCU_REG_PAGE_ALARM", mcu.McuPage.ALARM),
         ("MCU_REG_PAGE_ADC", mcu.McuPage.ADC),
+        ("MCU_REG_PAGE_RUNTIME", mcu.McuPage.RUNTIME),
         ("MCU_REG_PAGE_CONTROL", mcu.McuPage.CONTROL),
     ])
 
@@ -128,6 +129,24 @@ def test_system_page(defines):
         ("SYS_OFF_UPTIME_S", mcu.SystemReg.UPTIME_SECONDS),
         ("SYS_OFF_RESET_CAUSE", mcu.SystemReg.RESET_CAUSE),
         ("SYS_OFF_GIT_VERSION", mcu.SystemReg.GIT_VERSION),
+        ("SYS_OFF_FF_USER_MASK", mcu.SystemReg.FF_USER_MASK),
+        ("SYS_OFF_FF_PRESENT_MASK", mcu.SystemReg.FF_PRESENT_MASK),
+        ("SYS_OFF_BUILD_TYPE", mcu.SystemReg.BUILD_TYPE),
+        ("SYS_OFF_BUILD_TIME", mcu.SystemReg.BUILD_TIME),
+    ])
+
+
+def test_runtime_page(defines):
+    _check(defines, [
+        ("RT_OFF_HEAP_FREE", mcu.RuntimeReg.HEAP_FREE),
+        ("RT_OFF_HEAP_MIN_FREE", mcu.RuntimeReg.HEAP_MIN_EVER_FREE),
+        ("RT_OFF_HEAP_TOTAL", mcu.RuntimeReg.HEAP_TOTAL),
+        ("RT_OFF_SYSSTACK_UNTOUCHED_WORDS", mcu.RuntimeReg.SYSTEM_STACK_UNTOUCHED_WORDS),
+        ("RT_OFF_SYSSTACK_TOTAL_WORDS", mcu.RuntimeReg.SYSTEM_STACK_TOTAL_WORDS),
+        ("RT_OFF_ZYNQMON_TX_ENABLED", mcu.RuntimeReg.ZYNQMON_TRANSMIT_ENABLED),
+        ("RT_OFF_FPGA_DONE", mcu.RuntimeReg.FPGA_DONE),
+        ("RT_OFF_RTC_DATE", mcu.RuntimeReg.RTC_DATE),
+        ("RT_OFF_RTC_TIME", mcu.RuntimeReg.RTC_TIME),
     ])
 
 
@@ -179,6 +198,10 @@ def test_adc_and_control_pages(defines):
          mcu.McuControlCommand.RELEASE_PROGCOM_POWER_INHIBIT),
         ("CTRL_CMD_CLEAR_POWER_FAULT", mcu.McuControlCommand.CLEAR_POWER_FAULT),
         ("CTRL_CMD_CLEAR_ALARM_LATCHES", mcu.McuControlCommand.CLEAR_ALARM_LATCHES),
+        ("CTRL_CMD_ZYNQMON_ENABLE_TRANSMIT",
+         mcu.McuControlCommand.ZYNQMON_ENABLE_TRANSMIT),
+        ("CTRL_CMD_ZYNQMON_DISABLE_TRANSMIT",
+         mcu.McuControlCommand.ZYNQMON_DISABLE_TRANSMIT),
     ])
 
 
@@ -190,6 +213,7 @@ def test_capability_and_health_bits(defines):
         ("MCU_CAP_ADC", mcu.McuCapability.ADC),
         ("MCU_CAP_PERSISTENT_LOG", mcu.McuCapability.PERSISTENT_LOG),
         ("MCU_CAP_CONTROLS", mcu.McuCapability.CONTROLS),
+        ("MCU_CAP_RUNTIME", mcu.McuCapability.RUNTIME),
         ("MCU_HEALTH_POWER_FAULT", mcu.McuHealth.POWER_FAULT),
         ("MCU_HEALTH_TEMPERATURE_ALARM", mcu.McuHealth.TEMPERATURE_ALARM),
         ("MCU_HEALTH_VOLTAGE_ALARM", mcu.McuHealth.VOLTAGE_ALARM),
@@ -222,17 +246,50 @@ def test_map_version_and_array_lengths(defines):
     # page 0x00 git-version field
     assert _resolve("SYS_GIT_VERSION_LEN", defines) == 20
 
+    # page 0x00 build-time field
+    assert _resolve("SYS_BUILD_TIME_LEN", defines) == mcu.SYS_BUILD_TIME_LEN
+
+    # each page's used length must leave room for its last field: a real
+    # relationship rather than a literal compared with a literal
+    assert _resolve("RT_PAGE_USED_LEN", defines) >= max(
+        int(m) for m in mcu.RuntimeReg) + 4
+    assert _resolve("SYS_PAGE_USED_LEN", defines) >= int(
+        mcu.SystemReg.BUILD_TIME) + mcu.SYS_BUILD_TIME_LEN
+
 
 def test_no_python_offset_crosses_a_page_boundary():
     """Device.read_reg checks reg+size <= 0xFFFF but not offset+size <= 0x100,
     so a field near the end of a page would silently bump the page byte."""
     for enum_cls in (mcu.SystemReg, mcu.PowerReg, mcu.AlarmReg,
-                     mcu.ControlReg, mcu.PersistentLogInfoReg):
+                     mcu.ControlReg, mcu.PersistentLogInfoReg, mcu.RuntimeReg):
         for member in enum_cls:
             assert int(member) + 4 <= 0x100, (
                 "%s.%s at 0x%02x leaves no room for a 4-byte read"
                 % (enum_cls.__name__, member.name, int(member))
             )
+
+
+_OFFSET_PREFIXES = ("SYS_OFF_", "RT_OFF_")
+_ENUM_FOR_PREFIX = {
+    "SYS_OFF_": mcu.SystemReg,
+    "RT_OFF_": mcu.RuntimeReg,
+}
+
+
+def test_every_firmware_offset_has_a_python_counterpart(defines):
+    """A firmware field with no client counterpart is invisible drift."""
+    missing = []
+    for name in defines:
+        for prefix in _OFFSET_PREFIXES:
+            if not name.startswith(prefix):
+                continue
+            enum_cls = _ENUM_FOR_PREFIX[prefix]
+            value = _resolve(name, defines)
+            if value not in set(int(m) for m in enum_cls):
+                missing.append("%s = 0x%02x has no %s member"
+                               % (name, value, enum_cls.__name__))
+    assert not missing, "firmware offsets absent from the client:\n  " + \
+        "\n  ".join(missing)
 
 
 @pytest.mark.skipif(
