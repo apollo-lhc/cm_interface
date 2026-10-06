@@ -91,6 +91,10 @@ class Device(ABC):
             raise ValueError("read size must be between 1 and 4 bytes")
         if reg + size - 1 > 0xFFFF:
             raise ValueError("read extends beyond register 0xFFFF")
+        if (reg & 0xFF) + size > 0x100:
+            raise ValueError(
+                f"read of {size} bytes at 0x{reg:04X} crosses a page boundary"
+            )
 
         cmd = self._encode_command(reg, write=False, read_size=size)
         self.uart.write(cmd)
@@ -121,8 +125,10 @@ class Device(ABC):
 
         data = bytearray()
         while len(data) < length:
-            size = min(4, length - len(data))
-            data.extend(self.read_reg(reg + len(data), size=size))
+            here = reg + len(data)
+            # A single transaction cannot cross a page, so split at the boundary.
+            size = min(4, length - len(data), 0x100 - (here & 0xFF))
+            data.extend(self.read_reg(here, size=size))
         return bytes(data)
 
     def read_ascii(self, reg: int, length: int) -> str:
@@ -143,6 +149,10 @@ class Device(ABC):
         return updated
 
     def write_reg(self, reg: int, data: bytes) -> None:
+        if data and (reg & 0xFF) + len(data) > 0x100:
+            raise ValueError(
+                f"write of {len(data)} bytes at 0x{reg:04X} crosses a page boundary"
+            )
         cmd = self._encode_command(reg, write=True, payload=data)
         self.uart.write(cmd)
         resp = self.uart.readline()
