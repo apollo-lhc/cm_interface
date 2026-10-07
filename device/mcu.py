@@ -118,6 +118,15 @@ CONFIG_FIELD_WIDTHS = {
 }
 
 
+# Write clamps for the Config page. The firmware enforces the same bounds
+# (``CFG_TEMP_*`` / ``CFG_VOLT_*`` in MCU_Reg.h); the client checks first so a
+# dangerous value fails before it reaches the wire. Reads are not clamped.
+ALARM_TEMP_MIN_C = 50
+ALARM_TEMP_MAX_C = 100
+ALARM_VOLT_CPCT_MIN = 100     # 1 %
+ALARM_VOLT_CPCT_MAX = 1000    # 10 %
+
+
 class AlarmTempDevice(IntEnum):
     """Matches the firmware's ``enum device`` (``Tasks.h``): FF, DCDC, TM4C, FPGA."""
 
@@ -169,6 +178,7 @@ class McuCapability(IntFlag):
     CONTROLS = 1 << 6
     CONFIG = 1 << 7
     RUNTIME = 1 << 8
+    CONFIG_WRITE = 1 << 9
 
 
 class McuBuildType(IntEnum):
@@ -449,6 +459,12 @@ class MCU(Device):
     def _read_i16(self, page: McuPage, offset: IntEnum) -> int:
         return struct.unpack("<h", self.read_reg(self._reg(page, offset), size=2))[0]
 
+    def _write_i16(self, page: McuPage, offset: IntEnum, value: int) -> None:
+        self.write_reg(self._reg(page, offset), struct.pack("<h", value))
+
+    def _write_u16(self, page: McuPage, offset: IntEnum, value: int) -> None:
+        self.write_reg(self._reg(page, offset), struct.pack("<H", value))
+
     def _read_u32(self, page: McuPage, offset: IntEnum) -> int:
         return int.from_bytes(
             self.read_reg(self._reg(page, offset), size=4), "little"
@@ -660,6 +676,60 @@ class MCU(Device):
     @property
     def alarm_config(self) -> McuAlarmConfig:
         return self.read_alarm_config()
+
+    def _require_config_write(self, check: bool) -> None:
+        self._require_page(McuPage.CONFIG, check)
+        if check and not self.capabilities() & McuCapability.CONFIG_WRITE:
+            raise McuCapabilityUnavailable(
+                "firmware does not advertise {}".format(McuCapability.CONFIG_WRITE.name)
+            )
+
+    def set_alarm_temperature(self, device: AlarmTempDevice, celsius: int,
+                              check_capability: bool = True) -> None:
+        """Set one over-temperature alarm threshold; persists to EEPROM.
+
+        HAZARD: the temperature alarm task powers the board down when a device
+        exceeds its threshold. Raising a threshold persistently reduces thermal
+        protection (it survives reboot). Lowering one can force an immediate
+        power-down that no inhibit bit reflects -- e.g. 50 C on the FPGA
+        (default 81) or DCDC (default 70) threshold of a loaded board.
+
+        ``celsius`` must be an integer in ``ALARM_TEMP_MIN_C..ALARM_TEMP_MAX_C``;
+        anything else raises ``ValueError`` and sends nothing. A full firmware
+        EEPROM queue surfaces as an error from :meth:`write_reg`; nothing changed
+        and the call may be retried.
+        """
+        device = AlarmTempDevice(device)
+        if isinstance(celsius, bool) or int(celsius) != celsius:
+            raise ValueError("alarm temperature must be a whole number of degrees C")
+        celsius = int(celsius)
+        if not ALARM_TEMP_MIN_C <= celsius <= ALARM_TEMP_MAX_C:
+            raise ValueError(
+                "alarm temperature {} C outside {}..{} C".format(
+                    celsius, ALARM_TEMP_MIN_C, ALARM_TEMP_MAX_C)
+            )
+        self._require_config_write(check_capability)
+        self._write_i16(McuPage.CONFIG, _ALARM_TEMP_REG[device], celsius)
+
+    def set_alarm_voltage_threshold_percent(self, percent: float,
+                                            check_capability: bool = True) -> None:
+        """Set the voltage-alarm threshold in percent (1-10); persists to EEPROM.
+
+        Raising it persistently widens the band in which supply voltage errors
+        go unflagged. Out-of-range or NaN values raise ``ValueError`` and send
+        nothing. Queue-full behaviour is as for :meth:`set_alarm_temperature`.
+        """
+        # Compare as floats first: NaN fails every comparison and inf never
+        # reaches int(), so neither can slip through or raise OverflowError.
+        scaled = percent * 100
+        if not (ALARM_VOLT_CPCT_MIN <= scaled <= ALARM_VOLT_CPCT_MAX):
+            raise ValueError(
+                "voltage threshold {!r} % outside {}..{} %".format(
+                    percent, ALARM_VOLT_CPCT_MIN / 100.0, ALARM_VOLT_CPCT_MAX / 100.0)
+            )
+        centi_percent = int(round(scaled))
+        self._require_config_write(check_capability)
+        self._write_u16(McuPage.CONFIG, ConfigReg.ALARM_VOLT_THRESHOLD, centi_percent)
 
     def read_runtime(self, retries: int = 3,
                      check_capability: bool = True) -> McuRuntimeInfo:

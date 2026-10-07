@@ -155,6 +155,14 @@ def test_config_page(defines):
         _resolve("CFG_LEN_ALARM_VOLT", defines)
 
 
+def test_config_write_clamps(defines):
+    """Client and firmware must refuse the same values (the clamp is a safety control)."""
+    assert _resolve("CFG_TEMP_MIN_C", defines) == mcu.ALARM_TEMP_MIN_C
+    assert _resolve("CFG_TEMP_MAX_C", defines) == mcu.ALARM_TEMP_MAX_C
+    assert _resolve("CFG_VOLT_MIN_CPCT", defines) == mcu.ALARM_VOLT_CPCT_MIN
+    assert _resolve("CFG_VOLT_MAX_CPCT", defines) == mcu.ALARM_VOLT_CPCT_MAX
+
+
 def test_runtime_page(defines):
     _check(defines, [
         ("RT_OFF_HEAP_FREE", mcu.RuntimeReg.HEAP_FREE),
@@ -234,6 +242,7 @@ def test_capability_and_health_bits(defines):
         ("MCU_CAP_CONTROLS", mcu.McuCapability.CONTROLS),
         ("MCU_CAP_CONFIG", mcu.McuCapability.CONFIG),
         ("MCU_CAP_RUNTIME", mcu.McuCapability.RUNTIME),
+        ("MCU_CAP_CONFIG_WRITE", mcu.McuCapability.CONFIG_WRITE),
         ("MCU_HEALTH_POWER_FAULT", mcu.McuHealth.POWER_FAULT),
         ("MCU_HEALTH_TEMPERATURE_ALARM", mcu.McuHealth.TEMPERATURE_ALARM),
         ("MCU_HEALTH_VOLTAGE_ALARM", mcu.McuHealth.VOLTAGE_ALARM),

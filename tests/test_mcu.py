@@ -49,7 +49,8 @@ class MemoryMCU(MCU):
         all_caps = (McuCapability.SYSTEM | McuCapability.POWER
                     | McuCapability.ALARMS | McuCapability.ADC
                     | McuCapability.PERSISTENT_LOG | McuCapability.CONTROLS
-                    | McuCapability.RUNTIME | McuCapability.CONFIG)
+                    | McuCapability.RUNTIME | McuCapability.CONFIG
+                    | McuCapability.CONFIG_WRITE)
         self.put(McuPage.SYSTEM, SystemReg.CAPABILITIES,
                  int(all_caps).to_bytes(4, "little"))
 
@@ -420,6 +421,66 @@ class McuConfigTest(unittest.TestCase):
         config_reads = [r for r in mcu.reads if r[0] == int(McuPage.CONFIG)]
         self.assertEqual([(r[1], r[2]) for r in config_reads],
                          [(0, 2), (2, 2), (4, 2), (6, 2), (8, 2)])
+
+
+class McuConfigWriteTest(unittest.TestCase):
+    def test_set_alarm_temperature_writes_exact_field(self):
+        mcu = MemoryMCU()
+        mcu.set_alarm_temperature(AlarmTempDevice.DCDC, 70)
+        self.assertEqual(mcu.writes, [(0x05, 0x02, b"\x46\x00")])
+
+    def test_set_alarm_temperature_clamp_edges_accepted(self):
+        mcu = MemoryMCU()
+        mcu.set_alarm_temperature(AlarmTempDevice.FF, 50)
+        mcu.set_alarm_temperature(AlarmTempDevice.FPGA, 100)
+        self.assertEqual(mcu.writes, [(0x05, 0x00, b"\x32\x00"), (0x05, 0x06, b"\x64\x00")])
+
+    def test_set_alarm_temperature_rejects_out_of_clamp(self):
+        for bad in (-1, 0, 49, 101, 126, 32767, -32768):
+            mcu = MemoryMCU()
+            with self.assertRaises(ValueError):
+                mcu.set_alarm_temperature(AlarmTempDevice.FF, bad)
+            self.assertEqual(mcu.writes, [])
+
+    def test_set_alarm_temperature_rejects_non_integers(self):
+        for bad in (70.5, True, float("nan")):
+            mcu = MemoryMCU()
+            with self.assertRaises((ValueError, TypeError)):
+                mcu.set_alarm_temperature(AlarmTempDevice.FF, bad)
+            self.assertEqual(mcu.writes, [])
+
+    def test_set_alarm_voltage_threshold_writes_centipercent(self):
+        mcu = MemoryMCU()
+        mcu.set_alarm_voltage_threshold_percent(5.0)
+        mcu.set_alarm_voltage_threshold_percent(10.0)
+        mcu.set_alarm_voltage_threshold_percent(1.0)
+        self.assertEqual(
+            mcu.writes,
+            [(0x05, 0x08, b"\xf4\x01"), (0x05, 0x08, b"\xe8\x03"), (0x05, 0x08, b"\x64\x00")],
+        )
+
+    def test_set_alarm_voltage_threshold_rejects_out_of_range(self):
+        for bad in (0.5, 0.99, 10.01, 11.0, 60.0, -5.0, float("nan"), float("inf")):
+            mcu = MemoryMCU()
+            with self.assertRaises(ValueError):
+                mcu.set_alarm_voltage_threshold_percent(bad)
+            self.assertEqual(mcu.writes, [])
+
+    def test_config_write_gated_by_separate_capability(self):
+        mcu = MemoryMCU()
+        _put_u32(mcu, McuPage.SYSTEM, SystemReg.CAPABILITIES,
+                 McuCapability.SYSTEM | McuCapability.CONFIG)
+        mcu.read_alarm_config()  # read still works
+        with self.assertRaises(McuCapabilityUnavailable):
+            mcu.set_alarm_temperature(AlarmTempDevice.FF, 60)
+        with self.assertRaises(McuCapabilityUnavailable):
+            mcu.set_alarm_voltage_threshold_percent(5.0)
+        self.assertEqual(mcu.writes, [])
+
+    def test_centipercent_roundtrip_all_wire_percents(self):
+        # MN-3 regression: wire and CLI conversions agree for every clamped value.
+        for cpct in range(100, 1001):
+            self.assertEqual(int(round((cpct / 100.0) * 100)), cpct)
 
 
 class McuCapabilityGatingTest(unittest.TestCase):

@@ -8,12 +8,15 @@ one independently, so a page the deployed firmware doesn't yet implement
 (``invalid MCU page``) doesn't stop the rest. The deferred persistent-log
 pages are read as a best effort. The write-only Control page is only
 touched if you explicitly pass ``--send-control`` or ``--power-cycle`` and
-confirm.
+confirm. ``--set-alarm-temp`` and ``--set-volt-threshold`` write the Config page
+(persisted to EEPROM) and need the same confirmation.
 
 Usage:
     ./exercise_mcu.py [--dev-path /dev/ttyUL4] [--debug]
     ./exercise_mcu.py --send-control CLEAR_ALARM_LATCHES [--yes]
     ./exercise_mcu.py --power-cycle [--yes]
+    ./exercise_mcu.py --set-alarm-temp FPGA 85 [--yes]
+    ./exercise_mcu.py --set-volt-threshold 5 [--yes]
 """
 
 import argparse
@@ -31,7 +34,15 @@ if not __package__:
 
 from cm_interface.errors import CMError, McuCapabilityUnavailable
 from cm_interface.registry import Registry
-from cm_interface.device.mcu import McuControlCommand, describe_reset_cause
+from cm_interface.device.mcu import (
+    ALARM_TEMP_MAX_C,
+    ALARM_TEMP_MIN_C,
+    ALARM_VOLT_CPCT_MAX,
+    ALARM_VOLT_CPCT_MIN,
+    AlarmTempDevice,
+    McuControlCommand,
+    describe_reset_cause,
+)
 
 
 # RuntimeError is here on purpose: _run_section is a per-section warning
@@ -186,6 +197,51 @@ def send_control(mcu, command_name, assume_yes):
         print(f"  ⚠ {_format_error(exc)}")
 
 
+_CONFIG_WRITE_WARNING = (
+    "This value PERSISTS to EEPROM and survives reboot. Raising a temperature "
+    "threshold reduces thermal protection; lowering one can force an immediate "
+    "power-down that the ProgCom inhibit bit does not reflect."
+)
+
+
+def _confirm_config_write(what, assume_yes):
+    if assume_yes:
+        return True
+    print("WARNING: " + _CONFIG_WRITE_WARNING)
+    reply = input(f"Write {what} to live hardware? [y/N] ")
+    if reply.strip().lower() != "y":
+        print("Aborted.")
+        return False
+    return True
+
+
+def set_alarm_temp(mcu, device_name, celsius, assume_yes):
+    device = AlarmTempDevice[device_name]
+    try:
+        before = mcu.read_alarm_config()
+        if not _confirm_config_write(f"{device.name} alarm threshold = {celsius} C", assume_yes):
+            return
+        mcu.set_alarm_temperature(device, celsius)
+        after = mcu.read_alarm_config()
+        field = "alarm_temp_" + device.name.lower()
+        print(f"{device.name} threshold: {getattr(before, field)} -> {getattr(after, field)} C")
+    except EXPECTED_HARDWARE_ERRORS as exc:
+        print(f"  ⚠ {_format_error(exc)}")
+
+
+def set_volt_threshold(mcu, percent, assume_yes):
+    try:
+        before = mcu.read_alarm_config()
+        if not _confirm_config_write(f"voltage threshold = {percent} %", assume_yes):
+            return
+        mcu.set_alarm_voltage_threshold_percent(percent)
+        after = mcu.read_alarm_config()
+        print("Voltage threshold: {} -> {} %".format(
+            before.alarm_volt_threshold_percent, after.alarm_volt_threshold_percent))
+    except EXPECTED_HARDWARE_ERRORS as exc:
+        print(f"  ⚠ {_format_error(exc)}")
+
+
 def power_cycle(mcu, assume_yes):
     """Inhibit board power for 15 seconds, then always release the inhibit."""
     if not assume_yes:
@@ -228,9 +284,25 @@ def main():
     operation.add_argument("--power-cycle", action="store_true",
                            help="assert the ProgCom power inhibit for 15 seconds, "
                            "then release it")
+    operation.add_argument("--set-alarm-temp", nargs=2, metavar=("DEVICE", "CELSIUS"),
+                           help="write one over-temperature threshold ({} {}..{} C; "
+                           "DEVICE is one of {}); persists to EEPROM".format(
+                               "whole degrees", ALARM_TEMP_MIN_C, ALARM_TEMP_MAX_C,
+                               ", ".join(d.name for d in AlarmTempDevice)))
+    operation.add_argument("--set-volt-threshold", type=float, metavar="PCT",
+                           help="write the voltage-alarm threshold ({}..{} %%); "
+                           "persists to EEPROM".format(
+                               ALARM_VOLT_CPCT_MIN / 100.0, ALARM_VOLT_CPCT_MAX / 100.0))
     parser.add_argument("--yes", action="store_true",
-                        help="skip the confirmation prompt for a control action")
+                        help="skip the confirmation prompt for a mutating action")
     args = parser.parse_args()
+    if args.set_alarm_temp:
+        if args.set_alarm_temp[0] not in AlarmTempDevice.__members__:
+            parser.error("DEVICE must be one of " + ", ".join(AlarmTempDevice.__members__))
+        try:
+            args.set_alarm_temp[1] = int(args.set_alarm_temp[1])
+        except ValueError:
+            parser.error("CELSIUS must be a whole number")
 
     reg = Registry(dev_path=args.dev_path,
                     debug=sys.stdout if args.debug else None)
@@ -241,6 +313,12 @@ def main():
         return
     if args.power_cycle:
         power_cycle(mcu, args.yes)
+        return
+    if args.set_alarm_temp:
+        set_alarm_temp(mcu, args.set_alarm_temp[0], args.set_alarm_temp[1], args.yes)
+        return
+    if args.set_volt_threshold is not None:
+        set_volt_threshold(mcu, args.set_volt_threshold, args.yes)
         return
 
     exercise_system(mcu)

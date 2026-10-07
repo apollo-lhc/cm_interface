@@ -23,7 +23,7 @@ Read-only.
 | --- | ---: | --- |
 | `0x00` | 4 | ASCII magic `CMCU` |
 | `0x04` | 1 | map major version (`1`) |
-| `0x05` | 1 | map minor version (`2`) |
+| `0x05` | 1 | map minor version (`3`) |
 | `0x06` | 1 | hardware revision |
 | `0x07` | 1 | ADC channel count (`21`) |
 | `0x08` | 4 | capability bitmap |
@@ -59,9 +59,9 @@ Capability bits (bitmap at `0x08`):
 | 4 | reserved | — |
 | 5 | `PERSISTENT_LOG` | no |
 | 6 | `CONTROLS` | yes |
-| 7 | `CONFIG` | yes (page `0x05`, read-only; map minor ≥ 2) |
+| 7 | `CONFIG` | yes (page `0x05` readable; map minor ≥ 2) |
 | 8 | `RUNTIME` | yes |
-| 9 | `CONFIG_WRITE` | no (reserved for the page `0x05` write path, not yet implemented) |
+| 9 | `CONFIG_WRITE` | yes (page `0x05` writable; map minor ≥ 3) |
 
 A capability bit is set only once its page is fully implemented; a client
 must not assume a page works just because its offsets are frozen here.
@@ -183,12 +183,36 @@ ADC channel order (page `0x03`):
 6  F1_AVCC         13  CUR_V_12V        20 TM4C_TEMP
 ```
 
-## Page `0x05` — Config — **implemented (read-only)**
+## Page `0x05` — Config — **implemented (read/write)**
 
-Read-only at map minor 2; requires `CONFIG` (capability bit 7). Writes to this
-page return `MCU register is read only`. A write path, with its own capability
-bit (`CONFIG_WRITE`, bit 9), is planned but not implemented and is gated on
-maintainer sign-off.
+Readable from map minor 2 (`CONFIG`, capability bit 7); writable from map
+minor 3 (`CONFIG_WRITE`, bit 9). A client must check bit 9 before writing: on
+minor 2 firmware a write returns `MCU register is read only`.
+
+**Hazard — read before writing.** The temperature thresholds are not display
+values: the temperature alarm task powers the board down when a device exceeds
+its threshold. A write **persists to EEPROM and survives reboot**.
+
+- *Raising* a threshold persistently reduces thermal protection, with nothing
+  on the wire to show why after the next boot.
+- *Lowering* one can force an immediate power-down. That power-down is **not**
+  the ProgCom inhibit bit (`PWR_FLAG_PROGCOM_INHIBIT`), so it is not undone by
+  `RELEASE_PROGCOM_POWER_INHIBIT`. Writing 50 °C to the FPGA (default 81) or
+  DCDC (default 70) threshold of a loaded board will likely trip it.
+
+**Write rules.**
+
+- A write must name exactly one declared field, at its exact offset, with that
+  field's exact width (2 bytes). A write that starts mid-field or in a hole is
+  `invalid MCU address`; one that starts on a field with the wrong width is
+  `invalid MCU write span`.
+- Temperature thresholds: **50-100 °C** inclusive. Voltage threshold:
+  **100-1000 centi-percent** (1-10 %). Anything else is `invalid MCU value`.
+  The console accepts wider ranges on purpose; reads are never clamped.
+- The write is queued to the EEPROM task with a non-blocking send. If that
+  queue is full the reply is `MCU queue full`, **nothing changed**, and the
+  client may retry. Success (`c`) means the write was queued, not yet
+  programmed; the EEPROM word is rewritten only if it differs.
 
 The alarm thresholds, which a remote client previously could not see at all.
 Each field is a naturally-aligned 16-bit halfword (a single atomic access on
@@ -211,7 +235,7 @@ The four temperature offsets follow the firmware's `enum device` order (FF,
 DCDC, TM4C, FPGA), the same order the CLI and the EEPROM table use.
 
 Temperatures are **signed and unclamped on read**: EEPROM content set through
-the CLI can lie outside any range a future wire write would accept, and a
+the CLI can lie outside the range a wire write accepts, and a
 negative value reads back in two's complement. The voltage threshold is
 fixed-point rather than a float so that no float codec is needed on the MCU
 pages, which otherwise carry only `binary16` ADC values. On read the firmware
@@ -327,6 +351,8 @@ delivery across more than one queue.
 | unsupported/unimplemented page | `invalid MCU page` |
 | address not inside a declared field | `invalid MCU address` |
 | read/write crosses the end of a field, or length outside 1-4 | `invalid MCU read span` |
+| write to a field with a length other than its width (page `0x05`) | `invalid MCU write span` |
+| valid address and length, value outside the field's clamp (page `0x05`) | `invalid MCU value` |
 | write to a read-only page | `MCU register is read only` |
 | read from a write-only page | `MCU register is write only` |
 | valid request, queue-owned op not yet accepted | `MCU queue full` |
