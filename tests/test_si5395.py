@@ -1,6 +1,7 @@
 import unittest
 
 from cm_interface.device.si5395 import Clock, Si5395Reg
+from cm_interface.errors import ClockNvmWriteRefused
 
 
 class FakeUART:
@@ -56,6 +57,47 @@ class RenamedRegistersTest(unittest.TestCase):
         for name in names:
             if name.startswith("FREQ_CHANGE_PREAMBLE"):
                 self.assertNotIn("NVM", name)
+
+
+class NvmWriteGuardTest(unittest.TestCase):
+    def _clock(self):
+        uart = FakeUART(b"c\n", b"c\n", b"c\n")
+        return Clock(uart, address=0x10, name="R0A"), uart
+
+    def test_nvm_control_registers_refused_without_traffic(self):
+        for reg in (Si5395Reg.NVM_WRITE, Si5395Reg.NVM_READ_BANK, 0x00E3, 0x00E4):
+            clock, uart = self._clock()
+            with self.assertRaises(ClockNvmWriteRefused):
+                clock.write_reg(reg, b"\xC0")
+            self.assertEqual(uart.writes, [])
+
+    def test_multibyte_write_spanning_an_nvm_register_refused(self):
+        for start in (0x00E2, 0x00E3):
+            clock, uart = self._clock()
+            with self.assertRaises(ClockNvmWriteRefused):
+                clock.write_reg(start, b"\x00\x00")
+            self.assertEqual(uart.writes, [])
+
+    def test_neighbouring_registers_still_writable(self):
+        for reg, data in ((0x00E2, b"\x01"), (0x00E5, b"\x01"), (0x00E1, b"\x00\x00")):
+            clock, uart = self._clock()
+            clock.write_reg(reg, data)
+            self.assertEqual(len(uart.writes), 1)
+
+    def test_same_low_byte_on_another_page_is_not_nvm(self):
+        clock, uart = self._clock()
+        clock.write_reg(0x01E3, b"\x01")
+        self.assertEqual(len(uart.writes), 1)
+
+    def test_allow_nvm_opt_in_reaches_the_wire(self):
+        clock, uart = self._clock()
+        clock.write_reg(Si5395Reg.NVM_WRITE, b"\xC0", allow_nvm=True)
+        self.assertEqual(len(uart.writes), 1)
+
+    def test_existing_writers_not_blocked(self):
+        clock, uart = self._clock()
+        clock.clear_sticky_flags()
+        self.assertEqual(len(uart.writes), 1)
 
 
 class RegressionLocksTest(unittest.TestCase):

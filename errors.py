@@ -19,6 +19,12 @@ class RegisterAccessError(CMError):
     pass
 
 
+class ClockNvmWriteRefused(CMError):
+    """A write would touch an Si5395 NVM control register (burn / bank read)
+    and the caller did not opt in with ``allow_nvm=True``."""
+    pass
+
+
 class FPGAInterfaceUnavailable(RegisterAccessError):
     """Raised when an FPGA bitfile does not acknowledge its generic endpoint."""
     pass

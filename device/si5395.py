@@ -2,6 +2,7 @@ from enum import IntEnum
 from typing import Tuple
 
 from ..compat import dataclass
+from ..errors import ClockNvmWriteRefused
 from .base import Device
 
 
@@ -143,6 +144,13 @@ class LosStatusBits(IntEnum):
     OOF_IN3 = 7
 
 
+# Writing these starts an NVM burn / bank read on the chip. Nothing in this
+# package should do that by accident, so Clock.write_reg refuses them.
+_NVM_CONTROL_REGS = frozenset(
+    (int(Si5395Reg.NVM_WRITE), int(Si5395Reg.NVM_READ_BANK))
+)
+
+
 class Clock(Device):
     """Concrete representation of an Si5395 clock generator.
 
@@ -178,6 +186,23 @@ class Clock(Device):
 
     def _decode_response(self, raw: bytes) -> bytes:
         return self._decode_ascii_response(raw)
+
+    def write_reg(self, reg: int, data: bytes, allow_nvm: bool = False) -> None:
+        """Write registers, refusing any write that touches an NVM control register.
+
+        ``NVM_WRITE`` (0x00E3) burns the chip's non-volatile memory and
+        ``NVM_READ_BANK`` (0x00E4) loads a bank; a stray write to either is not
+        recoverable by this package. A multi-byte write that spans one of them
+        is refused too. ``allow_nvm=True`` is the explicit opt-in.
+        """
+        start = int(reg)
+        touched = [r for r in range(start, start + len(data)) if r in _NVM_CONTROL_REGS]
+        if touched and not allow_nvm:
+            raise ClockNvmWriteRefused(
+                "refusing write to Si5395 NVM control register 0x{:04X}; "
+                "pass allow_nvm=True to override".format(touched[0])
+            )
+        super().write_reg(reg, data)
 
     @property
     def mode(self) -> str:
