@@ -253,6 +253,23 @@ just one supply; they run unconditionally and cannot verify board-level power
 state themselves, so prefer the `Registry` method unless you've confirmed
 that precondition some other way.
 
+`LGA80D.read_snapshot(page=0)` reads the atomic 32-byte `SNAPSHOT` (PMBus `0xEA`) of one output
+page and returns a frozen `LGA80DSnapshot` (input/output voltage, signed output current, max
+current, duty cycle, temperature, switching frequency, the seven status bytes, and the raw
+bytes). It goes through the MCU's ProgCom `SN` device: one capture write (the MCU runs PAGE,
+`SNAPSHOT_CONTROL=0x01`, a ~40 ms wait and the block read, then caches the result), then eight
+4-byte reads of the cache. It is read-only; it never erases the snapshot history. The capture
+blocks the MCU's ProgCom task for ~70 ms uncontended, typically 200-400 ms while the monitor task is
+polling (up to ~0.7 s seen on hardware), and much longer if the I2C bus stays contended, and
+the UART timeout is not changed. Failures (including old firmware without `SN`, which answers
+`e invalid device type`) raise `RegisterAccessError`. A new unit holds a
+factory-qualification fault until it is erased with `reset_snapshot` (output off).
+`print(snapshot)` (or `snapshot.format_lines()`) gives a readable summary; `lga80d_dump.py --snapshot`
+uses it. `snapshot.is_stored_record` reads the flash status byte (byte 22, undocumented, so
+inferred from the failure-analysis notes): `True` for `0x00` (a fault record is stored, and the
+values are that record, not live data), `False` for `0xFF` (erased, values are live), `None` for
+anything else.
+
 ## Standard board configurations
 The repository ships two ready‑to‑use presets that match the real hardware layouts described in `design.md`.
 

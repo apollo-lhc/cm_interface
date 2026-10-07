@@ -35,6 +35,7 @@ _DEFAULT_MCU_ROOT = os.path.join(os.path.dirname(_CM_INTERFACE), "cm_mcu")
 MCU_ROOT = os.environ.get("CM_MCU_ROOT", _DEFAULT_MCU_ROOT)
 MCU_REG_H = os.path.join(MCU_ROOT, "projects", "cm_mcu", "MCU_Reg.h")
 PROGCOM_C = os.path.join(MCU_ROOT, "projects", "cm_mcu", "ProgComTask.c")
+POWER_COMMANDS_C = os.path.join(MCU_ROOT, "projects", "cm_mcu", "commands", "PowerCommands.c")
 REGISTER_MAP_MD = os.path.join(_CM_INTERFACE, "MCU_REGISTER_MAP.md")
 
 pytestmark = pytest.mark.skipif(
@@ -344,3 +345,47 @@ def test_firmware_error_strings_are_documented():
     assert not missing, (
         "firmware MCU error strings absent from MCU_REGISTER_MAP.md: %s" % missing
     )
+
+
+@pytest.mark.skipif(
+    not (os.path.isfile(PROGCOM_C) and os.path.isfile(POWER_COMMANDS_C)),
+    reason="ProgComTask.c or PowerCommands.c not found",
+)
+def test_lga80d_snapshot_sn_device_and_layout():
+    """LGA80D.read_snapshot depends on the ProgCom ``SN`` device (32 cached
+    bytes, parsed as a device type) and on the byte offsets of the firmware's
+    ``snapshot_t``; fail here if either drifts."""
+    from cm_interface.device import lga80d
+
+    with open(PROGCOM_C) as handle:
+        progcom = _strip_comments(handle.read())
+    assert re.search(r'strncmp\(p,\s*"SN",\s*2\)', progcom), "SN device type not parsed"
+    match = re.search(r"#define\s+SN_BYTES\s+(\d+)", progcom)
+    assert match and int(match.group(1)) == lga80d.SNAPSHOT_BYTES
+
+    with open(POWER_COMMANDS_C) as handle:
+        power = _strip_comments(handle.read())
+    body = re.search(r"typedef struct __attribute__\(\(packed\)\) \{(.*?)\} snapshot_t;",
+                     power, re.S)
+    assert body, "snapshot_t not found"
+    sizes = {"linear11_val_t": 2, "uint16_t": 2, "uint8_t": 1}
+    offsets, pos = {}, 0
+    for decl in (d.strip() for d in body.group(1).split(";")):
+        if not decl:
+            continue
+        m = re.match(r"(\w+)\s+(\w+)(?:\[(\d+)\])?$", decl)
+        assert m, "unparsed snapshot_t field: %r" % decl
+        ctype, name, count = m.group(1), m.group(2), int(m.group(3) or 1)
+        offsets[name] = pos
+        pos += sizes[ctype] * count
+    assert pos == lga80d.SNAPSHOT_BYTES
+
+    # Python field -> byte offset used by LGA80DSnapshot.from_bytes
+    expected = {
+        "v_in": 0, "v_out": 2, "i_out": 4, "i_out_max": 6, "duty_cycle": 8,
+        "temperature": 10, "freq": 14, "v_out_status": 16, "i_out_status": 17,
+        "input_status": 18, "temperature_status": 19, "cml_status": 20,
+        "mfr_status": 21, "flash_status": 22,
+    }
+    for name, offset in expected.items():
+        assert offsets.get(name) == offset, (name, offsets.get(name), offset)
