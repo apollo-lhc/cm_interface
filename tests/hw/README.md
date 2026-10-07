@@ -5,10 +5,11 @@ optical transceivers, an actual Si5395 clock generator, and an actual
 LGA80D DC-DC converter on a CMS tracker command-module board. They are a
 manual, human-run companion to the software unit tests in `tests/` (which
 use a `FakeUART` and never touch hardware), meant to let a person with a
-board in front of them confirm that this session's datasheet-audit bugfixes
-(see `/nfs/cms/hw/wittich/int_test/cm-interface-datasheet-audit.md` and the
-fix plan at `/home/wittich/.claude/plans/serene-mixing-mitten.md`) actually
+board in front of them confirm that the datasheet-audit bugfixes
+(see `/nfs/cms/hw/wittich/int_test/cm-interface-datasheet-audit.md`) actually
 hold up against real modules.
+
+There is no MCU test here; `exercise_mcu.py` is the MCU hardware path.
 
 **This suite is never run in CI** and is invisible to a plain
 `pytest cm_interface/tests/` invocation: `tests/hw/conftest.py` uses

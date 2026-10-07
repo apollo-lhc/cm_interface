@@ -3,7 +3,7 @@
 Exercise the command-module MCU's ProgCom register area (``MC 0``) on real
 hardware, following ``MCU_REGISTER_MAP.md``.
 
-Reads every implemented page (System, Power, Alarm, ADC) and reports each
+Reads every implemented page (System, Power, Alarm, Config, Runtime, ADC) and reports each
 one independently, so a page the deployed firmware doesn't yet implement
 (``invalid MCU page``) doesn't stop the rest. The deferred persistent-log
 pages are read as a best effort. The write-only Control page is only
@@ -108,7 +108,7 @@ def exercise_config(mcu):
         print(f"  temp threshold TM4C:  {cfg.alarm_temp_tm4c} C")
         print(f"  temp threshold FPGA:  {cfg.alarm_temp_fpga} C")
         print(f"  voltage threshold:    {cfg.alarm_volt_threshold_percent:.2f} %")
-    _run_section("Config (0x05, read-only)", go)
+    _run_section("Config (0x05)", go)
 
 
 def exercise_runtime(mcu):

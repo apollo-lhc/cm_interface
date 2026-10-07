@@ -362,7 +362,7 @@ delivery across more than one queue.
 
 `invalid MCU command` corresponds to `MCU_REG_INVALID_COMMAND`
 (`MCU_Reg.h:17`, returned at `ProgComTask.c:338`). It is reachable today: any
-byte other than 1-4 written to page `0x7f` produces it.
+byte other than 1-6 written to page `0x7f` produces it.
 
 Note for maintainers: `tests/test_wire_contract.py::test_firmware_error_strings_are_documented`
 checks that each firmware string appears *somewhere* in this file, not that it

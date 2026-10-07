@@ -2,14 +2,13 @@
 
 ## MCU device interface
 
-**Done:** `MC 0` pages `0x00` System, `0x01` Power, `0x02` Alarm, `0x03` ADC
-and `0x7f` Control, in firmware and in `device/mcu.py`. `MCU_REGISTER_MAP.md`
-is the wire contract.
+**Done:** `MC 0` pages `0x00` System, `0x01` Power, `0x02` Alarm, `0x03` ADC,
+`0x05` Config (read/write), `0x06` Runtime and `0x7f` Control, in firmware and in
+`device/mcu.py`. `MCU_REGISTER_MAP.md` is the wire contract.
 
-**Outstanding:** `../MCU_UART7_IMPLEMENTATION_PLAN.md` — prerequisite fixes
-B1-B13, then Phase 1 (System additions, Runtime page `0x06`, Control
-additions), Phase 2 (Config page `0x05`) and Phase 3 (persistent log
-`0x30`/`0x31`, offsets frozen but not served). The analysis behind it is
+**Outstanding:** Phase 3 of `../MCU_UART7_IMPLEMENTATION_PLAN.md` (persistent log
+`0x30`/`0x31`, offsets frozen but not served; deferred, the error log needs
+rework first). See `TODO.md`. The analysis behind it is
 `../MCU_CLI_GAP_PLAN.md`. The original MCU plans are in `../outdated/` and
 their offsets are wrong.
 

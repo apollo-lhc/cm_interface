@@ -29,8 +29,8 @@ covers what isn't obvious from reading the code.
 
 - `tests/*.py` — pure software, `FakeUART`-based, no hardware. Run from the
   `int_test` parent directory: `pytest cm_interface/tests/`. The firmware
-  contract tests in `test_wire_contract.py` skip unless `CM_MCU_ROOT` points at
-  the firmware checkout (e.g. `apollo_cm_mcu`). Must stay
+  contract tests in `test_wire_contract.py` default to `../cm_mcu` and skip when it is
+  absent; set `CM_MCU_ROOT` to use another checkout (e.g. `apollo_cm_mcu` on macOS). Must stay
   hardware-free; never add a test here that opens a real serial port.
 - `tests/hw/` — opt-in, hardware-runnable companion suite (env-var gated,
   see `tests/hw/README.md`). Keep new hardware checks here, not in the

@@ -50,12 +50,8 @@ device_id = clock.get_device_id()
 print(f"Device ID: 0x{device_id:04X}")
 ```
 
-**Output:**
+**Output** (with debug enabled the UART lines are ASCII, see "Understanding UART Debug Output" below):
 ```
-UART TX (7): 10 00 00 02 00 7b
-UART RX (4): 10 00 02 95
-UART TX (7): 10 00 00 03 00 7a
-UART RX (4): 10 00 03 53
 Device ID: 0x5395
 ```
 

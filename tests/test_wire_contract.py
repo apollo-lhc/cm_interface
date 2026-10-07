@@ -35,6 +35,7 @@ _DEFAULT_MCU_ROOT = os.path.join(os.path.dirname(_CM_INTERFACE), "cm_mcu")
 MCU_ROOT = os.environ.get("CM_MCU_ROOT", _DEFAULT_MCU_ROOT)
 MCU_REG_H = os.path.join(MCU_ROOT, "projects", "cm_mcu", "MCU_Reg.h")
 PROGCOM_C = os.path.join(MCU_ROOT, "projects", "cm_mcu", "ProgComTask.c")
+TASKS_H = os.path.join(MCU_ROOT, "projects", "cm_mcu", "Tasks.h")
 POWER_COMMANDS_C = os.path.join(MCU_ROOT, "projects", "cm_mcu", "commands", "PowerCommands.c")
 REGISTER_MAP_MD = os.path.join(_CM_INTERFACE, "MCU_REGISTER_MAP.md")
 
@@ -154,6 +155,22 @@ def test_config_page(defines):
         assert mcu.CONFIG_FIELD_WIDTHS[temp_reg] == _resolve("CFG_LEN_ALARM_TEMP", defines)
     assert mcu.CONFIG_FIELD_WIDTHS[mcu.ConfigReg.ALARM_VOLT_THRESHOLD] == \
         _resolve("CFG_LEN_ALARM_VOLT", defines)
+
+
+@pytest.mark.skipif(not os.path.isfile(TASKS_H), reason="Tasks.h not found under %s" % MCU_ROOT)
+def test_alarm_temp_device_enum_matches_firmware():
+    """The page 0x05 offsets are 2 * (enum device), so the order is wire contract."""
+    with open(TASKS_H) as handle:
+        text = _strip_comments(handle.read())
+    text = re.sub(r"//.*", "", text)
+    match = re.search(r"enum\s+device\s*\{([^}]*)\}", text)
+    assert match, "enum device not found in Tasks.h"
+    body = match.group(1)
+    assert "=" not in body, "explicit enumerator values: extend this test before trusting it"
+    names = [name.strip() for name in body.split(",") if name.strip()]
+    assert names == [member.name for member in mcu.AlarmTempDevice]
+    for index, name in enumerate(names):
+        assert int(mcu.AlarmTempDevice[name]) == index
 
 
 def test_config_write_clamps(defines):

@@ -16,7 +16,11 @@ cm_interface/
 ├─ utils.py               # PMBus Linear11/Linear16 codecs (crc8/pack_uint16 are unused)
 ├─ registry.py            # Global Registry for board devices
 ├─ examples.py            # Worked examples (see EXAMPLES.md)
-├─ exercise_mcu.py        # Exercise the MCU pages; power-cycle/control need --yes
+├─ exercise_mcu.py        # Exercise the MCU pages; writes/control prompt unless --yes
+├─ lga80d_dump.py         # LGA80D register dump script (--snapshot adds the SNAPSHOT read)
+├─ MCU_REGISTER_MAP.md    # MCU wire contract (with MCU_Reg.h)
+├─ TODO.md                # Open, deferred and dropped cm_interface work
+├─ FUTURE_IDEAS.md        # Ideas not yet planned
 ├─ lga80d_status.py       # Read-only decoded LGA80D status registers (one device or --all)
 ├─ core_config.py         # Fixed UART addresses for clocks and LGA80D
 ├─ firefly_presets.py     # Board-specific Firefly layouts (TF, IT-DTC)
@@ -85,8 +89,8 @@ f1.write_reg(0x00, 0x12345678, size=4)
 ## MCU endpoint status
 
 `Registry` always exposes the command-module MCU as `reg.mcu` and through
-`reg.get_mcu()`. The current Python client implements the Phase-1 interface
-for ProgCom device `MC 0` (read-only pages plus the Control page):
+`reg.get_mcu()`. The current Python client implements UART7 Phases 1, 2a and 2b
+for ProgCom device `MC 0` (read pages, the writable Config page and the Control page):
 
 ```python
 from cm_interface.device.mcu import McuControlCommand
@@ -104,8 +108,14 @@ print(power.fsm_state, power.flags, power.supply_states)
 alarm = mcu.read_alarm()
 print(alarm.temp_task_state, alarm.temp_status)
 
-cfg = mcu.read_alarm_config()          # page 0x05 (read-only), map minor >= 2
+cfg = mcu.read_alarm_config()          # page 0x05, map minor >= 2
 print(cfg.alarm_temp_ff, cfg.alarm_volt_threshold_percent)
+
+# Writes need map minor >= 3 (CONFIG_WRITE). They PERSIST to EEPROM and move the
+# over-temperature power-down point. Clamps: 50-100 C, 1-10 %.
+from cm_interface.device.mcu import AlarmTempDevice
+mcu.set_alarm_temperature(AlarmTempDevice.TM4C, 75)
+mcu.set_alarm_voltage_threshold_percent(5.0)
 
 rt = mcu.read_runtime()                # page 0x06, map minor >= 1 firmware
 print(rt.heap_free_bytes, rt.system_stack_untouched_words, rt.fpga_done)
@@ -137,18 +147,17 @@ whose bit is not set. `system_info` is never gated: it is how the mask is
 discovered.
 
 **Done.** Python client and in-memory unit tests for pages `0x00` System,
-`0x01` Power, `0x02` Alarm, `0x03` ADC, `0x05` Config (read-only), `0x06`
-Runtime and `0x7f` Control (including the sticky `ZYNQMON_DISABLE_TRANSMIT`).
-The matching firmware (`cm_mcu/projects/cm_mcu/MCU_Reg.c`) serves those pages
-at map minor 2. Nothing here establishes what is installed on a given
+`0x01` Power, `0x02` Alarm, `0x03` ADC, `0x05` Config (readable from map
+minor 2, writable from minor 3, hardware-verified; see the hazard in
+`MCU_REGISTER_MAP.md`), `0x06` Runtime and `0x7f` Control (including the sticky
+`ZYNQMON_DISABLE_TRANSMIT`). The matching firmware
+(`cm_mcu/projects/cm_mcu/MCU_Reg.c`) serves those pages at map minor 3. Nothing here establishes what is installed on a given
 target; older firmware may still return `MCU device not implemented`.
 
 **Outstanding** — tracked in `../MCU_UART7_IMPLEMENTATION_PLAN.md`:
 
-- prerequisite fixes B1-B13 (B6, B8 and B9 are done);
-- Phase 2b: the Config page's write path (needs maintainer sign-off); the
-  read-only half is done;
-- Phase 3: the persistent-log pages `0x30`/`0x31`. Their offsets are frozen
+- Phase 3 (deferred; the error log needs rework first, prerequisites B11 and
+  B13): the persistent-log pages `0x30`/`0x31`. Their offsets are frozen
   and `read_persistent_log_info()`/`read_persistent_log_entries()` exist, but
   firmware does not serve them — reads return `invalid MCU page`.
 
@@ -327,4 +336,4 @@ expected hardware or configuration error.
 The UART wrapper is lazy; in unit tests you can monkey‑patch `UART._ser` with a mock object that records writes and returns predefined bytes for reads.  This allows testing of device logic without hardware.
 
 ## License
-MIT – see `LICENSE` file (if added).
+MIT. There is no `LICENSE` file in this directory yet.
