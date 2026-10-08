@@ -77,31 +77,46 @@ The Python `MCU` client for ProgCom device `MC 0` follows
   status/latch pair is an 8-byte `read_block`, i.e. **two** 4-byte wire
   transactions, not one: the firmware-side group atomicity argument holds,
   but the pair is not read atomically over the wire;
+- `read_alarm_config()` / `alarm_config` returns the Config page `0x05` alarm
+  thresholds (readable from map minor 2, writable from 3): four signed `int16` °C temperature
+  thresholds and the voltage threshold in percent (`uint16` centi-percent on the
+  wire). Five independent halfwords, one transaction each, no generation
+  counter. Temperatures are not clamped on read;
+- `set_alarm_temperature()` / `set_alarm_voltage_threshold_percent()` write one
+  Config field each (needs `CONFIG_WRITE`, map minor >= 3). Client and firmware
+  clamp to 50-100 °C and 1-10 %. The value persists to EEPROM and moves the
+  over-temperature power-down point, so a bad value is a safety problem;
+- `read_runtime()` / `runtime` returns the Runtime page `0x06` (heap,
+  system-stack headroom, ZynqMon transmit flag, FPGA DONE pins, RTC). The RTC
+  is two independent words read time, date, time and retried on a rollover;
+  `McuCoherencyError` if never stable. On map minor >= 1 firmware `system_info`
+  also carries the Firefly masks, build type and build time, `None` on
+  minor 0;
 - `read_persistent_log_info()` and `read_persistent_log_entries()` read the
   frozen (offsets final, not yet firmware-served) persistent-log pages; and
 - `send_control(McuControlCommand...)` writes the one-byte write-only
   Control-page command (`ASSERT`/`RELEASE_PROGCOM_POWER_INHIBIT`,
-  `CLEAR_POWER_FAULT`, `CLEAR_ALARM_LATCHES`).
+  `CLEAR_POWER_FAULT`, `CLEAR_ALARM_LATCHES`, `ZYNQMON_ENABLE_TRANSMIT`,
+  `ZYNQMON_DISABLE_TRANSMIT`). `ZYNQMON_DISABLE_TRANSMIT` is sticky: nothing
+  re-enables it but the CLI or a reboot.
 
 There is no `AdcTarget`/ADC-target page — it does not exist in the register
-map. Do not infer support from an enum member alone; inspect the
-firmware-reported capability mask, since a page can be frozen (offsets final)
-without firmware yet serving real data.
+map. Do not infer support from an enum member alone: the client now enforces
+this, checking the firmware capability mask and raising
+`McuCapabilityUnavailable` before issuing a read. `check_capability=False`
+bypasses it; `capabilities(refresh=True)` re-reads the cached mask.
 
 **Done:** the Python client and memory-backed unit tests, and the matching
-firmware — `cm_mcu/projects/cm_mcu/MCU_Reg.c` and `MCU_Reg.h` on branch
-`feature/sm_uart` — which serves pages `0x00` System, `0x01` Power, `0x02`
-Alarm, `0x03` ADC and `0x7f` Control. Nothing here establishes what is
+firmware — `cm_mcu/projects/cm_mcu/MCU_Reg.c` and `MCU_Reg.h` — which serves
+pages `0x00` System, `0x01` Power, `0x02` Alarm, `0x03` ADC, `0x05` Config
+(read/write from map minor 3), `0x06` Runtime and `0x7f` Control at map minor 3. Nothing here establishes what is
 installed on a given target; older firmware may still answer
 `MCU device not implemented`.
 
 **Outstanding** — all in `../MCU_UART7_IMPLEMENTATION_PLAN.md`:
 
-- prerequisite fixes B1-B13; B6/B9 keep `tests/test_wire_contract.py`
-  failing and block Phase 1;
-- Phase 1 (read-only System additions, Runtime page `0x06`, more Control
-  commands), Phase 2 (Config page `0x05`; writes need maintainer sign-off),
-  Phase 3 (persistent log). Pages `0x30`/`0x31` are frozen but **not**
+- Phase 3 (persistent log; deferred, the error log needs rework first;
+  prerequisites B11 and B13). Pages `0x30`/`0x31` are frozen but **not**
   served: reads return `e invalid MCU page`.
 
 `MCU_REGISTER_MAP.md` (in this directory) plus `MCU_Reg.h` are the

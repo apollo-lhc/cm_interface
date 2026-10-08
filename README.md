@@ -16,7 +16,11 @@ cm_interface/
 ├─ utils.py               # PMBus Linear11/Linear16 codecs (crc8/pack_uint16 are unused)
 ├─ registry.py            # Global Registry for board devices
 ├─ examples.py            # Worked examples (see EXAMPLES.md)
-├─ exercise_mcu.py        # Exercise the MCU pages; power-cycle/control need --yes
+├─ exercise_mcu.py        # Exercise the MCU pages; writes/control prompt unless --yes
+├─ lga80d_dump.py         # LGA80D register dump script (--snapshot adds the SNAPSHOT read)
+├─ MCU_REGISTER_MAP.md    # MCU wire contract (with MCU_Reg.h)
+├─ TODO.md                # Open, deferred and dropped cm_interface work
+├─ FUTURE_IDEAS.md        # Ideas not yet planned
 ├─ lga80d_status.py       # Read-only decoded LGA80D status registers (one device or --all)
 ├─ core_config.py         # Fixed UART addresses for clocks and LGA80D
 ├─ firefly_presets.py     # Board-specific Firefly layouts (TF, IT-DTC)
@@ -85,8 +89,8 @@ f1.write_reg(0x00, 0x12345678, size=4)
 ## MCU endpoint status
 
 `Registry` always exposes the command-module MCU as `reg.mcu` and through
-`reg.get_mcu()`. The current Python client implements the read-only Phase-1
-interface for ProgCom device `MC 0`:
+`reg.get_mcu()`. The current Python client implements UART7 Phases 1, 2a and 2b
+for ProgCom device `MC 0` (read pages, the writable Config page and the Control page):
 
 ```python
 from cm_interface.device.mcu import McuControlCommand
@@ -104,10 +108,26 @@ print(power.fsm_state, power.flags, power.supply_states)
 alarm = mcu.read_alarm()
 print(alarm.temp_task_state, alarm.temp_status)
 
+cfg = mcu.read_alarm_config()          # page 0x05, map minor >= 2
+print(cfg.alarm_temp_ff, cfg.alarm_volt_threshold_percent)
+
+# Writes need map minor >= 3 (CONFIG_WRITE). They PERSIST to EEPROM and move the
+# over-temperature power-down point. Clamps: 50-100 C, 1-10 %.
+from cm_interface.device.mcu import AlarmTempDevice
+mcu.set_alarm_temperature(AlarmTempDevice.TM4C, 75)
+mcu.set_alarm_voltage_threshold_percent(5.0)
+
+rt = mcu.read_runtime()                # page 0x06, map minor >= 1 firmware
+print(rt.heap_free_bytes, rt.system_stack_untouched_words, rt.fpga_done)
+print(rt.rtc.isoformat())              # "unset" when the RTC is not valid
+
 mcu.send_control(McuControlCommand.CLEAR_ALARM_LATCHES)
 ```
 
-`system_info` validates the `CMCU` magic and map major version 1. ADC values
+`system_info` validates the `CMCU` magic and map major version 1. On map
+minor >= 1 firmware it also returns `ff_user_mask`, `ff_present_mask`,
+`build_type` and `build_time`; on minor 0 these are `None` and are not even
+requested. ADC values
 are 21 little-endian IEEE-754 binary16 values, selectable by channel name; an
 unpublished channel reads back as `NaN` rather than carrying a separate
 validity bitmap. `read_power()`
@@ -119,20 +139,25 @@ atomically as a group by firmware. The temperature status/latch pair is an
 one; the firmware-side grouping still holds, but the pair is not fetched
 atomically over the wire.
 
+**Capability gating.** Every page-scoped method checks the firmware capability
+mask (read once, cached; `mcu.capabilities(refresh=True)` re-reads it, e.g.
+after a reflash) and raises `McuCapabilityUnavailable` instead of issuing a
+read the firmware would reject. Pass `check_capability=False` to probe a page
+whose bit is not set. `system_info` is never gated: it is how the mask is
+discovered.
+
 **Done.** Python client and in-memory unit tests for pages `0x00` System,
-`0x01` Power, `0x02` Alarm, `0x03` ADC and `0x7f` Control. The matching
-firmware (`cm_mcu/projects/cm_mcu/MCU_Reg.c`, branch `feature/sm_uart`) serves
-those five pages. Nothing here establishes what is installed on a given
+`0x01` Power, `0x02` Alarm, `0x03` ADC, `0x05` Config (readable from map
+minor 2, writable from minor 3, hardware-verified; see the hazard in
+`MCU_REGISTER_MAP.md`), `0x06` Runtime and `0x7f` Control (including the sticky
+`ZYNQMON_DISABLE_TRANSMIT`). The matching firmware
+(`cm_mcu/projects/cm_mcu/MCU_Reg.c`) serves those pages at map minor 3. Nothing here establishes what is installed on a given
 target; older firmware may still return `MCU device not implemented`.
 
 **Outstanding** — tracked in `../MCU_UART7_IMPLEMENTATION_PLAN.md`:
 
-- prerequisite fixes B1-B13. B6/B9 (two undocumented firmware error strings)
-  keep `tests/test_wire_contract.py` failing and block Phase 1;
-- Phase 1: new read-only System fields, a Runtime page `0x06`, more Control
-  commands;
-- Phase 2: a Config page `0x05` (the write path needs maintainer sign-off);
-- Phase 3: the persistent-log pages `0x30`/`0x31`. Their offsets are frozen
+- Phase 3 (deferred; the error log needs rework first, prerequisites B11 and
+  B13): the persistent-log pages `0x30`/`0x31`. Their offsets are frozen
   and `read_persistent_log_info()`/`read_persistent_log_entries()` exist, but
   firmware does not serve them — reads return `invalid MCU page`.
 
@@ -237,6 +262,23 @@ just one supply; they run unconditionally and cannot verify board-level power
 state themselves, so prefer the `Registry` method unless you've confirmed
 that precondition some other way.
 
+`LGA80D.read_snapshot(page=0)` reads the atomic 32-byte `SNAPSHOT` (PMBus `0xEA`) of one output
+page and returns a frozen `LGA80DSnapshot` (input/output voltage, signed output current, max
+current, duty cycle, temperature, switching frequency, the seven status bytes, and the raw
+bytes). It goes through the MCU's ProgCom `SN` device: one capture write (the MCU runs PAGE,
+`SNAPSHOT_CONTROL=0x01`, a ~40 ms wait and the block read, then caches the result), then eight
+4-byte reads of the cache. It is read-only; it never erases the snapshot history. The capture
+blocks the MCU's ProgCom task for ~70 ms uncontended, typically 200-400 ms while the monitor task is
+polling (up to ~0.7 s seen on hardware), and much longer if the I2C bus stays contended, and
+the UART timeout is not changed. Failures (including old firmware without `SN`, which answers
+`e invalid device type`) raise `RegisterAccessError`. A new unit holds a
+factory-qualification fault until it is erased with `reset_snapshot` (output off).
+`print(snapshot)` (or `snapshot.format_lines()`) gives a readable summary; `lga80d_dump.py --snapshot`
+uses it. `snapshot.is_stored_record` reads the flash status byte (byte 22, undocumented, so
+inferred from the failure-analysis notes): `True` for `0x00` (a fault record is stored, and the
+values are that record, not live data), `False` for `0xFF` (erased, values are live), `None` for
+anything else.
+
 ## Standard board configurations
 The repository ships two ready‑to‑use presets that match the real hardware layouts described in `design.md`.
 
@@ -271,6 +313,14 @@ preset. Use `reg.fireflies.get(location)` when an empty or unused slot is
 expected. Register operations raise `CMError` subclasses; their chained cause
 may contain the MCU response, such as `Firefly not enabled`.
 
+MCU register-map problems raise `McuProtocolError` subclasses (all `CMError`):
+`McuMagicError` (System page lacks the `CMCU` magic), `McuMapVersionError`
+(unsupported map major version) and `McuCoherencyError` (the Power snapshot
+changed during every read attempt). **Breaking change:** these were previously
+bare `RuntimeError`s, so a caller that caught `RuntimeError` for them must now
+catch `CMError` (or `McuProtocolError`). `Registry.reset_all_lga80d_snapshots`
+still raises `RuntimeError` for its `force=True` and power-state checks.
+
 The worked `examples.py` runner handles these expected conditions: missing
 preset entries are reported as skips, per-device communication failures do not
 stop iteration, and an error in one example does not prevent later examples
@@ -286,4 +336,4 @@ expected hardware or configuration error.
 The UART wrapper is lazy; in unit tests you can monkey‑patch `UART._ser` with a mock object that records writes and returns predefined bytes for reads.  This allows testing of device logic without hardware.
 
 ## License
-MIT – see `LICENSE` file (if added).
+MIT. There is no `LICENSE` file in this directory yet.

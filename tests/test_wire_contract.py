@@ -35,6 +35,8 @@ _DEFAULT_MCU_ROOT = os.path.join(os.path.dirname(_CM_INTERFACE), "cm_mcu")
 MCU_ROOT = os.environ.get("CM_MCU_ROOT", _DEFAULT_MCU_ROOT)
 MCU_REG_H = os.path.join(MCU_ROOT, "projects", "cm_mcu", "MCU_Reg.h")
 PROGCOM_C = os.path.join(MCU_ROOT, "projects", "cm_mcu", "ProgComTask.c")
+TASKS_H = os.path.join(MCU_ROOT, "projects", "cm_mcu", "Tasks.h")
+POWER_COMMANDS_C = os.path.join(MCU_ROOT, "projects", "cm_mcu", "commands", "PowerCommands.c")
 REGISTER_MAP_MD = os.path.join(_CM_INTERFACE, "MCU_REGISTER_MAP.md")
 
 pytestmark = pytest.mark.skipif(
@@ -111,6 +113,8 @@ def test_pages(defines):
         ("MCU_REG_PAGE_POWER", mcu.McuPage.POWER),
         ("MCU_REG_PAGE_ALARM", mcu.McuPage.ALARM),
         ("MCU_REG_PAGE_ADC", mcu.McuPage.ADC),
+        ("MCU_REG_PAGE_CONFIG", mcu.McuPage.CONFIG),
+        ("MCU_REG_PAGE_RUNTIME", mcu.McuPage.RUNTIME),
         ("MCU_REG_PAGE_CONTROL", mcu.McuPage.CONTROL),
     ])
 
@@ -128,6 +132,66 @@ def test_system_page(defines):
         ("SYS_OFF_UPTIME_S", mcu.SystemReg.UPTIME_SECONDS),
         ("SYS_OFF_RESET_CAUSE", mcu.SystemReg.RESET_CAUSE),
         ("SYS_OFF_GIT_VERSION", mcu.SystemReg.GIT_VERSION),
+        ("SYS_OFF_FF_USER_MASK", mcu.SystemReg.FF_USER_MASK),
+        ("SYS_OFF_FF_PRESENT_MASK", mcu.SystemReg.FF_PRESENT_MASK),
+        ("SYS_OFF_BUILD_TYPE", mcu.SystemReg.BUILD_TYPE),
+        ("SYS_OFF_BUILD_TIME", mcu.SystemReg.BUILD_TIME),
+    ])
+
+
+def test_config_page(defines):
+    _check(defines, [
+        ("CFG_OFF_ALARM_TEMP_FF", mcu.ConfigReg.ALARM_TEMP_FF),
+        ("CFG_OFF_ALARM_TEMP_DCDC", mcu.ConfigReg.ALARM_TEMP_DCDC),
+        ("CFG_OFF_ALARM_TEMP_TM4C", mcu.ConfigReg.ALARM_TEMP_TM4C),
+        ("CFG_OFF_ALARM_TEMP_FPGA", mcu.ConfigReg.ALARM_TEMP_FPGA),
+        ("CFG_OFF_ALARM_VOLT_CPCT", mcu.ConfigReg.ALARM_VOLT_THRESHOLD),
+    ])
+    # field widths come through #defines, not a regex over MCU_Reg.c
+    assert _resolve("CFG_LEN_ALARM_TEMP", defines) == 2
+    assert _resolve("CFG_LEN_ALARM_VOLT", defines) == 2
+    for temp_reg in (mcu.ConfigReg.ALARM_TEMP_FF, mcu.ConfigReg.ALARM_TEMP_DCDC,
+                     mcu.ConfigReg.ALARM_TEMP_TM4C, mcu.ConfigReg.ALARM_TEMP_FPGA):
+        assert mcu.CONFIG_FIELD_WIDTHS[temp_reg] == _resolve("CFG_LEN_ALARM_TEMP", defines)
+    assert mcu.CONFIG_FIELD_WIDTHS[mcu.ConfigReg.ALARM_VOLT_THRESHOLD] == \
+        _resolve("CFG_LEN_ALARM_VOLT", defines)
+
+
+@pytest.mark.skipif(not os.path.isfile(TASKS_H), reason="Tasks.h not found under %s" % MCU_ROOT)
+def test_alarm_temp_device_enum_matches_firmware():
+    """The page 0x05 offsets are 2 * (enum device), so the order is wire contract."""
+    with open(TASKS_H) as handle:
+        text = _strip_comments(handle.read())
+    text = re.sub(r"//.*", "", text)
+    match = re.search(r"enum\s+device\s*\{([^}]*)\}", text)
+    assert match, "enum device not found in Tasks.h"
+    body = match.group(1)
+    assert "=" not in body, "explicit enumerator values: extend this test before trusting it"
+    names = [name.strip() for name in body.split(",") if name.strip()]
+    assert names == [member.name for member in mcu.AlarmTempDevice]
+    for index, name in enumerate(names):
+        assert int(mcu.AlarmTempDevice[name]) == index
+
+
+def test_config_write_clamps(defines):
+    """Client and firmware must refuse the same values (the clamp is a safety control)."""
+    assert _resolve("CFG_TEMP_MIN_C", defines) == mcu.ALARM_TEMP_MIN_C
+    assert _resolve("CFG_TEMP_MAX_C", defines) == mcu.ALARM_TEMP_MAX_C
+    assert _resolve("CFG_VOLT_MIN_CPCT", defines) == mcu.ALARM_VOLT_CPCT_MIN
+    assert _resolve("CFG_VOLT_MAX_CPCT", defines) == mcu.ALARM_VOLT_CPCT_MAX
+
+
+def test_runtime_page(defines):
+    _check(defines, [
+        ("RT_OFF_HEAP_FREE", mcu.RuntimeReg.HEAP_FREE),
+        ("RT_OFF_HEAP_MIN_FREE", mcu.RuntimeReg.HEAP_MIN_EVER_FREE),
+        ("RT_OFF_HEAP_TOTAL", mcu.RuntimeReg.HEAP_TOTAL),
+        ("RT_OFF_SYSSTACK_UNTOUCHED_WORDS", mcu.RuntimeReg.SYSTEM_STACK_UNTOUCHED_WORDS),
+        ("RT_OFF_SYSSTACK_TOTAL_WORDS", mcu.RuntimeReg.SYSTEM_STACK_TOTAL_WORDS),
+        ("RT_OFF_ZYNQMON_TX_ENABLED", mcu.RuntimeReg.ZYNQMON_TRANSMIT_ENABLED),
+        ("RT_OFF_FPGA_DONE", mcu.RuntimeReg.FPGA_DONE),
+        ("RT_OFF_RTC_DATE", mcu.RuntimeReg.RTC_DATE),
+        ("RT_OFF_RTC_TIME", mcu.RuntimeReg.RTC_TIME),
     ])
 
 
@@ -179,6 +243,10 @@ def test_adc_and_control_pages(defines):
          mcu.McuControlCommand.RELEASE_PROGCOM_POWER_INHIBIT),
         ("CTRL_CMD_CLEAR_POWER_FAULT", mcu.McuControlCommand.CLEAR_POWER_FAULT),
         ("CTRL_CMD_CLEAR_ALARM_LATCHES", mcu.McuControlCommand.CLEAR_ALARM_LATCHES),
+        ("CTRL_CMD_ZYNQMON_ENABLE_TRANSMIT",
+         mcu.McuControlCommand.ZYNQMON_ENABLE_TRANSMIT),
+        ("CTRL_CMD_ZYNQMON_DISABLE_TRANSMIT",
+         mcu.McuControlCommand.ZYNQMON_DISABLE_TRANSMIT),
     ])
 
 
@@ -190,6 +258,9 @@ def test_capability_and_health_bits(defines):
         ("MCU_CAP_ADC", mcu.McuCapability.ADC),
         ("MCU_CAP_PERSISTENT_LOG", mcu.McuCapability.PERSISTENT_LOG),
         ("MCU_CAP_CONTROLS", mcu.McuCapability.CONTROLS),
+        ("MCU_CAP_CONFIG", mcu.McuCapability.CONFIG),
+        ("MCU_CAP_RUNTIME", mcu.McuCapability.RUNTIME),
+        ("MCU_CAP_CONFIG_WRITE", mcu.McuCapability.CONFIG_WRITE),
         ("MCU_HEALTH_POWER_FAULT", mcu.McuHealth.POWER_FAULT),
         ("MCU_HEALTH_TEMPERATURE_ALARM", mcu.McuHealth.TEMPERATURE_ALARM),
         ("MCU_HEALTH_VOLTAGE_ALARM", mcu.McuHealth.VOLTAGE_ALARM),
@@ -222,17 +293,56 @@ def test_map_version_and_array_lengths(defines):
     # page 0x00 git-version field
     assert _resolve("SYS_GIT_VERSION_LEN", defines) == 20
 
+    # page 0x00 build-time field
+    assert _resolve("SYS_BUILD_TIME_LEN", defines) == mcu.SYS_BUILD_TIME_LEN
+
+    # page 0x05: used length covers the last field's offset plus its width
+    assert _resolve("CFG_PAGE_USED_LEN", defines) >= max(
+        int(m) + mcu.CONFIG_FIELD_WIDTHS[m] for m in mcu.ConfigReg)
+
+    # each page's used length must leave room for its last field: a real
+    # relationship rather than a literal compared with a literal
+    assert _resolve("RT_PAGE_USED_LEN", defines) >= max(
+        int(m) for m in mcu.RuntimeReg) + 4
+    assert _resolve("SYS_PAGE_USED_LEN", defines) >= int(
+        mcu.SystemReg.BUILD_TIME) + mcu.SYS_BUILD_TIME_LEN
+
 
 def test_no_python_offset_crosses_a_page_boundary():
     """Device.read_reg checks reg+size <= 0xFFFF but not offset+size <= 0x100,
     so a field near the end of a page would silently bump the page byte."""
     for enum_cls in (mcu.SystemReg, mcu.PowerReg, mcu.AlarmReg,
-                     mcu.ControlReg, mcu.PersistentLogInfoReg):
+                     mcu.ControlReg, mcu.PersistentLogInfoReg, mcu.RuntimeReg,
+                     mcu.ConfigReg):
         for member in enum_cls:
             assert int(member) + 4 <= 0x100, (
                 "%s.%s at 0x%02x leaves no room for a 4-byte read"
                 % (enum_cls.__name__, member.name, int(member))
             )
+
+
+_OFFSET_PREFIXES = ("SYS_OFF_", "RT_OFF_", "CFG_OFF_")
+_ENUM_FOR_PREFIX = {
+    "SYS_OFF_": mcu.SystemReg,
+    "RT_OFF_": mcu.RuntimeReg,
+    "CFG_OFF_": mcu.ConfigReg,
+}
+
+
+def test_every_firmware_offset_has_a_python_counterpart(defines):
+    """A firmware field with no client counterpart is invisible drift."""
+    missing = []
+    for name in defines:
+        for prefix in _OFFSET_PREFIXES:
+            if not name.startswith(prefix):
+                continue
+            enum_cls = _ENUM_FOR_PREFIX[prefix]
+            value = _resolve(name, defines)
+            if value not in set(int(m) for m in enum_cls):
+                missing.append("%s = 0x%02x has no %s member"
+                               % (name, value, enum_cls.__name__))
+    assert not missing, "firmware offsets absent from the client:\n  " + \
+        "\n  ".join(missing)
 
 
 @pytest.mark.skipif(
@@ -252,3 +362,47 @@ def test_firmware_error_strings_are_documented():
     assert not missing, (
         "firmware MCU error strings absent from MCU_REGISTER_MAP.md: %s" % missing
     )
+
+
+@pytest.mark.skipif(
+    not (os.path.isfile(PROGCOM_C) and os.path.isfile(POWER_COMMANDS_C)),
+    reason="ProgComTask.c or PowerCommands.c not found",
+)
+def test_lga80d_snapshot_sn_device_and_layout():
+    """LGA80D.read_snapshot depends on the ProgCom ``SN`` device (32 cached
+    bytes, parsed as a device type) and on the byte offsets of the firmware's
+    ``snapshot_t``; fail here if either drifts."""
+    from cm_interface.device import lga80d
+
+    with open(PROGCOM_C) as handle:
+        progcom = _strip_comments(handle.read())
+    assert re.search(r'strncmp\(p,\s*"SN",\s*2\)', progcom), "SN device type not parsed"
+    match = re.search(r"#define\s+SN_BYTES\s+(\d+)", progcom)
+    assert match and int(match.group(1)) == lga80d.SNAPSHOT_BYTES
+
+    with open(POWER_COMMANDS_C) as handle:
+        power = _strip_comments(handle.read())
+    body = re.search(r"typedef struct __attribute__\(\(packed\)\) \{(.*?)\} snapshot_t;",
+                     power, re.S)
+    assert body, "snapshot_t not found"
+    sizes = {"linear11_val_t": 2, "uint16_t": 2, "uint8_t": 1}
+    offsets, pos = {}, 0
+    for decl in (d.strip() for d in body.group(1).split(";")):
+        if not decl:
+            continue
+        m = re.match(r"(\w+)\s+(\w+)(?:\[(\d+)\])?$", decl)
+        assert m, "unparsed snapshot_t field: %r" % decl
+        ctype, name, count = m.group(1), m.group(2), int(m.group(3) or 1)
+        offsets[name] = pos
+        pos += sizes[ctype] * count
+    assert pos == lga80d.SNAPSHOT_BYTES
+
+    # Python field -> byte offset used by LGA80DSnapshot.from_bytes
+    expected = {
+        "v_in": 0, "v_out": 2, "i_out": 4, "i_out_max": 6, "duty_cycle": 8,
+        "temperature": 10, "freq": 14, "v_out_status": 16, "i_out_status": 17,
+        "input_status": 18, "temperature_status": 19, "cml_status": 20,
+        "mfr_status": 21, "flash_status": 22,
+    }
+    for name, offset in expected.items():
+        assert offsets.get(name) == offset, (name, offsets.get(name), offset)

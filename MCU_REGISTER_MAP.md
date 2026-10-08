@@ -23,7 +23,7 @@ Read-only.
 | --- | ---: | --- |
 | `0x00` | 4 | ASCII magic `CMCU` |
 | `0x04` | 1 | map major version (`1`) |
-| `0x05` | 1 | map minor version (`0`) |
+| `0x05` | 1 | map minor version (`3`) |
 | `0x06` | 1 | hardware revision |
 | `0x07` | 1 | ADC channel count (`21`) |
 | `0x08` | 4 | capability bitmap |
@@ -33,6 +33,20 @@ Read-only.
 | `0x18` | 4 | reset cause (raw, uncleared 32-bit `SysCtl` value) |
 | `0x1c` | 16 | reserved |
 | `0x40` | 20 | version string, NUL-padded (`git describe --dirty --always --tags`) |
+| `0x54` | 4 | Firefly user mask, bit *n* = Firefly index *n* (**requires map minor ≥ 1**) |
+| `0x58` | 4 | Firefly present mask, same bit order (**requires map minor ≥ 1**) |
+| `0x5c` | 1 | build type: `0` release, `1` DEBUG (**requires map minor ≥ 1**) |
+| `0x5d` | 3 | undeclared hole |
+| `0x60` | 24 | build time `HH:MM:SS, Mon DD YYYY`, NUL-padded (**requires map minor ≥ 1**) |
+
+Offsets `0x78` and up are an undeclared hole. On map minor 0 firmware every
+offset from `0x54` up is a hole, so a client must check the minor version
+before reading them.
+
+The two Firefly masks are separate 4-byte transactions and are **not**
+updated atomically with each other. Read both, read both again, and retry
+if they disagree (`cm_interface` retries three times, then raises
+`McuCoherencyError`).
 
 Capability bits (bitmap at `0x08`):
 
@@ -45,6 +59,9 @@ Capability bits (bitmap at `0x08`):
 | 4 | reserved | — |
 | 5 | `PERSISTENT_LOG` | no |
 | 6 | `CONTROLS` | yes |
+| 7 | `CONFIG` | yes (page `0x05` readable; map minor ≥ 2) |
+| 8 | `RUNTIME` | yes |
+| 9 | `CONFIG_WRITE` | yes (page `0x05` writable; map minor ≥ 3) |
 
 A capability bit is set only once its page is fully implemented; a client
 must not assume a page works just because its offsets are frozen here.
@@ -166,6 +183,105 @@ ADC channel order (page `0x03`):
 6  F1_AVCC         13  CUR_V_12V        20 TM4C_TEMP
 ```
 
+## Page `0x05` — Config — **implemented (read/write)**
+
+Readable from map minor 2 (`CONFIG`, capability bit 7); writable from map
+minor 3 (`CONFIG_WRITE`, bit 9). A client must check bit 9 before writing: on
+minor 2 firmware a write returns `MCU register is read only`.
+
+**Hazard — read before writing.** The temperature thresholds are not display
+values: the temperature alarm task powers the board down when a device exceeds
+its threshold. A write **persists to EEPROM and survives reboot**.
+
+- *Raising* a threshold persistently reduces thermal protection, with nothing
+  on the wire to show why after the next boot.
+- *Lowering* one can force an immediate power-down. That power-down is **not**
+  the ProgCom inhibit bit (`PWR_FLAG_PROGCOM_INHIBIT`), so it is not undone by
+  `RELEASE_PROGCOM_POWER_INHIBIT`. Writing 50 °C to the FPGA (default 81) or
+  DCDC (default 70) threshold of a loaded board will likely trip it.
+
+**Write rules.**
+
+- A write must name exactly one declared field, at its exact offset, with that
+  field's exact width (2 bytes). A write that starts mid-field or in a hole is
+  `invalid MCU address`; one that starts on a field with the wrong width is
+  `invalid MCU write span`.
+- Temperature thresholds: **50-100 °C** inclusive. Voltage threshold:
+  **100-1000 centi-percent** (1-10 %). Anything else is `invalid MCU value`.
+  The console accepts wider temperature ranges on purpose, so temperature
+  reads are never clamped. The voltage range is shared: the console
+  (`setvoltthres`) and the EEPROM load at boot use the same 100-1000 limits.
+- The write is queued to the EEPROM task with a non-blocking send. If that
+  queue is full the reply is `MCU queue full`, **nothing changed**, and the
+  client may retry. Success (`c`) means the write was queued, not yet
+  programmed; the EEPROM word is rewritten only if it differs.
+- There is no rate limit. Set thresholds once; never write them in a loop.
+  Each change costs an EEPROM write cycle (TM4C1290 datasheet: >500K writes
+  per word, with endurance shared across an 8-block meta-block).
+
+The alarm thresholds, which a remote client previously could not see at all.
+Each field is a naturally-aligned 16-bit halfword (a single atomic access on
+Cortex-M4) and a read must stay inside one field, so `r MC 0 5 0 4` is
+rejected rather than returning two thresholds. The five values are independent
+policy settings, not a causally-correlated snapshot, so there is **no
+generation counter**, for the same reason pages `0x02` and `0x03` have none.
+
+| Offset | Size | Field |
+| --- | ---: | --- |
+| `0x00` | 2 | Firefly temperature threshold, `int16` °C |
+| `0x02` | 2 | DCDC temperature threshold, `int16` °C |
+| `0x04` | 2 | TM4C temperature threshold, `int16` °C |
+| `0x06` | 2 | FPGA temperature threshold, `int16` °C |
+| `0x08` | 2 | voltage-alarm threshold, `uint16` **centi-percent** (`500` = 5 %) |
+
+Offsets `0x0a` and up are an undeclared hole.
+
+The four temperature offsets follow the firmware's `enum device` order (FF,
+DCDC, TM4C, FPGA), the same order the CLI and the EEPROM table use.
+
+Temperatures are **signed and unclamped on read**: EEPROM content set through
+the CLI can lie outside the range a wire write accepts, and a
+negative value reads back in two's complement. The voltage threshold is
+fixed-point rather than a float so that no float codec is needed on the MCU
+pages, which otherwise carry only `binary16` ADC values. The firmware holds
+the threshold internally in centi-percent, so a read returns it unconverted.
+
+## Page `0x06` — Runtime — **implemented**
+
+Read-only. No generation counter: every field is a single atomic word or
+byte. The RTC is two independent 4-byte fields, so a client reads time, then
+date, then time again, and retries if the time moved between the two time
+reads (a second rollover); `cm_interface` retries three times, then raises
+`McuCoherencyError`. Requires `RUNTIME` (capability bit 8).
+
+| Offset | Size | Field |
+| --- | ---: | --- |
+| `0x00` | 4 | heap free, bytes |
+| `0x04` | 4 | heap minimum-ever free, bytes |
+| `0x08` | 4 | heap total, bytes (`configTOTAL_HEAP_SIZE`) |
+| `0x0c` | 4 | system stack untouched, words — **falling is worse** |
+| `0x10` | 4 | system stack total, words (`SYSTEM_STACK_SIZE`) |
+| `0x14` | 1 | ZynqMon transmit enabled, `0`/`1` |
+| `0x15` | 1 | FPGA DONE pins, raw level: bit 0 = F1, bit 1 = F2 |
+| `0x16` | 2 | undeclared hole (alignment before the RTC pair) |
+| `0x18` | 4 | RTC date: `(year << 16) \| (month << 8) \| day`, full year, month 1-12 |
+| `0x1c` | 4 | RTC time: `(valid << 24) \| (hour << 16) \| (minute << 8) \| second` |
+
+Offsets `0x20` and up are an undeclared hole (reserved for staleness
+metadata).
+
+RTC `valid` is the hardware's own `HIB_CAL1_VALID` latch, the same test the
+`rtc` CLI command uses. When it is clear, **both** words are `0`, so the date
+reads `0000-00-00` and `valid` reads `0`.
+
+The firmware disagrees with itself about RTC validity. `common/log.c` instead
+tests `tm_year < 120` ("RTC not yet set"). These are different predicates: a
+battery-backed RTC that ran down and came back could satisfy one and not the
+other. The wire carries `HIB_CAL1_VALID`; do not be surprised if the
+persistent-log timestamps disagree with it.
+
+`FPGA DONE` is the raw pin level, with no bus access and no semaphore.
+
 ## Page `0x30` — Persistent-log metadata — **deferred**
 
 Read-only.
@@ -199,6 +315,8 @@ Write-only. One command byte at offset `0x00`.
 | 2 | `RELEASE_PROGCOM_POWER_INHIBIT` |
 | 3 | `CLEAR_POWER_FAULT` |
 | 4 | `CLEAR_ALARM_LATCHES` |
+| 5 | `ZYNQMON_ENABLE_TRANSMIT` |
+| 6 | `ZYNQMON_DISABLE_TRANSMIT` |
 
 `CLEAR_ALARM_LATCHES` matches the existing CLI's `alarm_ctl clear` exactly:
 it sends the same `ALM_CLEAR_ALL` message to both `tempAlarmTask.xAlmQueue`
@@ -206,6 +324,20 @@ and `voltAlarmTask.xAlmQueue`, accepting the same partial-failure risk the
 CLI already accepts today (two independent sends, no rollback if one
 fails). There is no independent per-alarm-type clear — that would be more
 granularity than any existing interface offers.
+
+Codes 5 and 6 send `ZYNQMON_ENABLE_TRANSMIT` / `ZYNQMON_DISABLE_TRANSMIT` to
+the ZynqMon task's own queue. The CLI sends the same messages with a 10 ms
+timeout; ProgCom uses `0` ticks.
+
+**Read-back is a poll, not a confirmation.** The ZynqMon task drains its queue
+once per loop iteration, and that iteration also transmits telemetry before
+the next delay. Page `0x06` offset `0x14` therefore reflects the command only
+after one full loop period. Poll it; do not assume it.
+
+**`ZYNQMON_DISABLE_TRANSMIT` is sticky.** Nothing re-enables transmission: not
+a timeout, not the power FSM, not an alarm. A client that disables telemetry
+and then dies, loses its link, or is killed leaves the blade dark to the Zynq
+until someone reaches the CLI (`zmon enable`) or the board reboots.
 
 Queue sends for every command on this page are non-blocking (`0`-tick
 timeout): a full queue is real backpressure and should surface to the
@@ -224,6 +356,8 @@ delivery across more than one queue.
 | unsupported/unimplemented page | `invalid MCU page` |
 | address not inside a declared field | `invalid MCU address` |
 | read/write crosses the end of a field, or length outside 1-4 | `invalid MCU read span` |
+| write to a field with a length other than its width (pages `0x05`, `0x7f`) | `invalid MCU write span` |
+| valid address and length, value outside the field's clamp (page `0x05`) | `invalid MCU value` |
 | write to a read-only page | `MCU register is read only` |
 | read from a write-only page | `MCU register is write only` |
 | valid request, queue-owned op not yet accepted | `MCU queue full` |
@@ -233,21 +367,10 @@ delivery across more than one queue.
 
 `invalid MCU command` corresponds to `MCU_REG_INVALID_COMMAND`
 (`MCU_Reg.h:17`, returned at `ProgComTask.c:338`). It is reachable today: any
-byte other than 1-4 written to page `0x7f` produces it.
-
-One firmware string is deliberately kept out of the table above.
-`ProgComTask.c:357` returns `invalid MCU OP` from a defensive `else` on an op
-that can only be read or write — `enum progcom_op_t` has exactly two
-enumerators, the parser always assigns one, and `PROGCOM_OP_READ` is 0 so even
-a zero-initialised command defaults to a valid op. The branch is **unreachable**
-and is slated for deletion (B9 in `../MCU_UART7_IMPLEMENTATION_PLAN.md`), so it
-is described here rather than listed as a condition an operator could hit.
-
-<!-- DELETE THIS PARAGRAPH when B9 removes the ProgComTask.c:357 branch. -->
+byte other than 1-6 written to page `0x7f` produces it.
 
 Note for maintainers: `tests/test_wire_contract.py::test_firmware_error_strings_are_documented`
 checks that each firmware string appears *somewhere* in this file, not that it
-appears in the table. Prose like the paragraph above therefore satisfies it.
-That is deliberate — an explained string is documented — but it means the test
-cannot tell "listed as an operator-visible error" from "explained as dead
-code"; a reviewer has to.
+appears in the table. Prose therefore satisfies it. That is deliberate — an
+explained string is documented — but it means the test cannot tell "listed as
+an operator-visible error" from "explained as dead code"; a reviewer has to.

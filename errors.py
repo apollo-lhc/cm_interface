@@ -19,6 +19,37 @@ class RegisterAccessError(CMError):
     pass
 
 
+class ClockNvmWriteRefused(CMError):
+    """A write would touch an Si5395 NVM control register (burn / bank read)
+    and the caller did not opt in with ``allow_nvm=True``."""
+    pass
+
+
 class FPGAInterfaceUnavailable(RegisterAccessError):
     """Raised when an FPGA bitfile does not acknowledge its generic endpoint."""
+    pass
+
+
+class McuProtocolError(CMError):
+    """Raised when the MCU's register map does not match this client."""
+    pass
+
+
+class McuMagicError(McuProtocolError):
+    """The System page did not start with the ``CMCU`` magic."""
+    pass
+
+
+class McuMapVersionError(McuProtocolError):
+    """The firmware's register-map major version is not supported."""
+    pass
+
+
+class McuCoherencyError(McuProtocolError):
+    """A generation-counted page changed during every read attempt."""
+    pass
+
+
+class McuCapabilityUnavailable(McuProtocolError):
+    """The firmware does not advertise the capability this call needs."""
     pass

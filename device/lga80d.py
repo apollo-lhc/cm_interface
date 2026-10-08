@@ -1,7 +1,9 @@
 import time
 from enum import IntEnum
+from typing import List, Optional
 
 from ..compat import dataclass
+from ..errors import RegisterAccessError
 from .base import Device
 from ..utils import decode_linear11, decode_linear16u
 
@@ -11,6 +13,11 @@ from ..utils import decode_linear11, decode_linear16u
 # which found ~20ms insufficient (returned a zero-length block read) and
 # settled on twice that.
 SNAPSHOT_CAPTURE_DELAY_S = 0.04
+
+# The SNAPSHOT register (PMBus 0xEA) is 32 bytes. The MCU serves it through the
+# ProgCom "SN" device: one capture write, then cached reads of up to 4 bytes.
+SNAPSHOT_BYTES = 32
+_SNAPSHOT_READ_BYTES = 4
 
 
 @dataclass(frozen=True)
@@ -56,6 +63,124 @@ class LGA80DStatus:
             self.cml,
             self.manufacturer,
         ))
+
+@dataclass(frozen=True)
+class LGA80DSnapshot:
+    """Decoded 32-byte LGA80D SNAPSHOT (PMBus 0xEA), one atomic capture.
+
+    Layout is ``snapshot_t`` in the MCU firmware (``commands/PowerCommands.c``),
+    little-endian. Units follow the matching direct reads: ``switching_frequency``
+    is whatever ``read_switching_frequency`` returns. ``output_current`` and
+    ``max_output_current`` are signed (unloaded outputs have been seen reporting
+    negative current) and are never clamped.
+    """
+
+    input_voltage: float
+    output_voltage: float
+    output_current: float
+    max_output_current: float
+    duty_cycle: float
+    temperature: float
+    switching_frequency: float
+    vout_status: int
+    iout_status: int
+    input_status: int
+    temperature_status: int
+    cml_status: int
+    manufacturer_status: int
+    flash_status: int
+    raw: bytes
+
+    # Byte 22 of the snapshot is not defined in any datasheet checked: the
+    # LGA80D TRN (Rev 2.6) and the ZL8802 (FN8760 Rev 3.00) and ZL8800 (FN7558
+    # Rev 6.00) datasheets all list it only as "Flash Memory Status Byte, N/A,
+    # Bit Field", with no bit or value definitions (a web search on
+    # 2026-10-07 found nothing more). From the F2VCCINT failure analysis
+    # (LGA80D_F2VCCINT_FA_notes.md): 0x00 on a supply that has stored a fault
+    # record, 0xFF on one that is erased/empty. Both meanings are inferred
+    # from observation, not from any datasheet.
+    FLASH_STATUS_RECORD = 0x00
+    FLASH_STATUS_EMPTY = 0xFF
+
+    @property
+    def is_stored_record(self) -> Optional[bool]:
+        """Whether this snapshot is a stored fault record rather than live data.
+
+        ``True`` if the flash status says a record is stored (0x00): per the
+        failure-analysis notes the values are then the fault-time snapshot,
+        not live readings, and the device stops updating the stored record
+        until it is erased (``reset_snapshot``, output off). ``False`` if the
+        flash is erased/empty (0xFF): the values are live readings. ``None``
+        for any other flash status byte, which is not understood.
+
+        Inferred from a byte that no datasheet defines (see the notes on the
+        constants). Only 0xFF has been seen on hardware; the stored-record
+        case (0x00) has not.
+        """
+        if self.flash_status == self.FLASH_STATUS_RECORD:
+            return True
+        if self.flash_status == self.FLASH_STATUS_EMPTY:
+            return False
+        return None
+
+    def format_lines(self, indent: str = "    ") -> List[str]:
+        """Human-readable multi-line summary, one string per line."""
+        lines = []
+        for label, value, unit in (
+                ("VIN", self.input_voltage, "V"),
+                ("VOUT", self.output_voltage, "V"),
+                ("IOUT", self.output_current, "A"),
+                ("IOUT max", self.max_output_current, "A"),
+                ("duty cycle", self.duty_cycle, "%"),
+                ("temperature", self.temperature, "C"),
+                ("switching frequency", self.switching_frequency, "kHz")):
+            lines.append("%s%-24s %.4g %s" % (indent, label, value, unit))
+        for label, value in (
+                ("STATUS_VOUT", self.vout_status),
+                ("STATUS_IOUT", self.iout_status),
+                ("STATUS_INPUT", self.input_status),
+                ("STATUS_TEMPERATURE", self.temperature_status),
+                ("STATUS_CML", self.cml_status),
+                ("STATUS_MFR", self.manufacturer_status)):
+            lines.append("%s%-24s 0x%02X" % (indent, label, value))
+        stored = self.is_stored_record
+        meaning = ("stored fault record, not live data" if stored
+                   else "empty, live data" if stored is not None
+                   else "unknown meaning")
+        lines.append("%s%-24s 0x%02X (%s)" % (indent, "flash status",
+                                              self.flash_status, meaning))
+        lines.append("%sraw: %s" % (indent, " ".join("%02X" % b for b in self.raw)))
+        return lines
+
+    def __str__(self) -> str:
+        return "\n".join(self.format_lines(indent=""))
+
+    @classmethod
+    def from_bytes(cls, raw: bytes) -> "LGA80DSnapshot":
+        raw = bytes(raw)
+        if len(raw) != SNAPSHOT_BYTES:
+            raise ValueError(
+                f"LGA80D snapshot must be {SNAPSHOT_BYTES} bytes, got {len(raw)}"
+            )
+        return cls(
+            input_voltage=decode_linear11(raw[0:2]),
+            output_voltage=decode_linear16u(raw[2:4]),
+            output_current=decode_linear11(raw[4:6]),
+            max_output_current=decode_linear11(raw[6:8]),
+            duty_cycle=decode_linear11(raw[8:10]),
+            temperature=decode_linear11(raw[10:12]),
+            # bytes 12-13 are unused in the firmware's snapshot_t
+            switching_frequency=decode_linear11(raw[14:16]),
+            vout_status=raw[16],
+            iout_status=raw[17],
+            input_status=raw[18],
+            temperature_status=raw[19],
+            cml_status=raw[20],
+            manufacturer_status=raw[21],
+            flash_status=raw[22],
+            raw=raw,
+        )
+
 
 class LGA80DReg(IntEnum):
     """Safe monitoring and basic control commands for the LGA80D."""
@@ -170,6 +295,61 @@ class LGA80D(Device):
     @property
     def voltage(self) -> float:
         return self.read_output_voltage(page=0)
+
+    def read_snapshot(self, page: int = 0) -> LGA80DSnapshot:
+        """Capture and read the atomic 32-byte SNAPSHOT of one output page.
+
+        Uses the MCU's ``SN`` ProgCom device: ``w SN <dev> <page> 00 01`` makes
+        the MCU capture the register (PAGE, SNAPSHOT_CONTROL=0x01, wait, block
+        read) and cache it, then eight 4-byte reads return the cache. The
+        capture blocks the MCU's ProgCom task for ~70 ms uncontended and
+        typically 200-400 ms while the monitor task polls (up to ~0.7 s seen
+        on hardware), and for much longer if the I2C bus stays contended; the
+        UART timeout is not changed here.
+
+        Read-only: it does not erase the snapshot history. A new unit holds a
+        factory-qualification fault until it is erased with
+        :meth:`reset_snapshot` (output off). Requires firmware with the ``SN``
+        device; older firmware answers ``e invalid device type``.
+
+        Raises :class:`RegisterAccessError` if the capture or any read fails,
+        including when another client captures a different supply or page
+        between this capture and the reads (the MCU keeps a single capture).
+        """
+        if page not in (0, 1):
+            raise ValueError("LGA80D page must be 0 or 1")
+        dev = self.address - 0x40
+
+        self.uart.write(self._encode_ascii_command(
+            "SN", dev, page << 8, True, bytes([0x01])))
+        try:
+            self._check_ascii_write_response(self.uart.readline())
+        except ValueError as exc:
+            raise RegisterAccessError(
+                f"LGA80D {self.supply_name} snapshot capture failed: {exc}"
+            ) from exc
+
+        raw = bytearray()
+        while len(raw) < SNAPSHOT_BYTES:
+            offset = len(raw)
+            self.uart.write(self._encode_ascii_command(
+                "SN", dev, (page << 8) | offset, False,
+                read_size=_SNAPSHOT_READ_BYTES))
+            try:
+                chunk = self._decode_ascii_response(self.uart.readline())
+            except ValueError as exc:
+                raise RegisterAccessError(
+                    f"LGA80D {self.supply_name} snapshot read at offset "
+                    f"0x{offset:02X} failed: {exc}"
+                ) from exc
+            if len(chunk) != _SNAPSHOT_READ_BYTES:
+                raise RegisterAccessError(
+                    f"LGA80D {self.supply_name} snapshot read at offset "
+                    f"0x{offset:02X} returned {len(chunk)} bytes; expected "
+                    f"{_SNAPSHOT_READ_BYTES}"
+                )
+            raw.extend(chunk)
+        return LGA80DSnapshot.from_bytes(bytes(raw))
 
     def reset_snapshot(self, page: int = 0) -> None:
         """Reset the snapshot history register for one output page.
