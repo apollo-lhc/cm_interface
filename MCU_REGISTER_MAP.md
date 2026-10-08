@@ -208,11 +208,16 @@ its threshold. A write **persists to EEPROM and survives reboot**.
   `invalid MCU write span`.
 - Temperature thresholds: **50-100 °C** inclusive. Voltage threshold:
   **100-1000 centi-percent** (1-10 %). Anything else is `invalid MCU value`.
-  The console accepts wider ranges on purpose; reads are never clamped.
+  The console accepts wider temperature ranges on purpose, so temperature
+  reads are never clamped. The voltage range is shared: the console
+  (`setvoltthres`) and the EEPROM load at boot use the same 100-1000 limits.
 - The write is queued to the EEPROM task with a non-blocking send. If that
   queue is full the reply is `MCU queue full`, **nothing changed**, and the
   client may retry. Success (`c`) means the write was queued, not yet
   programmed; the EEPROM word is rewritten only if it differs.
+- There is no rate limit. Set thresholds once; never write them in a loop.
+  Each change costs an EEPROM write cycle (TM4C1290 datasheet: >500K writes
+  per word, with endurance shared across an 8-block meta-block).
 
 The alarm thresholds, which a remote client previously could not see at all.
 Each field is a naturally-aligned 16-bit halfword (a single atomic access on
@@ -238,8 +243,8 @@ Temperatures are **signed and unclamped on read**: EEPROM content set through
 the CLI can lie outside the range a wire write accepts, and a
 negative value reads back in two's complement. The voltage threshold is
 fixed-point rather than a float so that no float codec is needed on the MCU
-pages, which otherwise carry only `binary16` ADC values. On read the firmware
-clamps the internal value to `0`-`65535` centi-percent before converting.
+pages, which otherwise carry only `binary16` ADC values. The firmware holds
+the threshold internally in centi-percent, so a read returns it unconverted.
 
 ## Page `0x06` — Runtime — **implemented**
 
@@ -351,7 +356,7 @@ delivery across more than one queue.
 | unsupported/unimplemented page | `invalid MCU page` |
 | address not inside a declared field | `invalid MCU address` |
 | read/write crosses the end of a field, or length outside 1-4 | `invalid MCU read span` |
-| write to a field with a length other than its width (page `0x05`) | `invalid MCU write span` |
+| write to a field with a length other than its width (pages `0x05`, `0x7f`) | `invalid MCU write span` |
 | valid address and length, value outside the field's clamp (page `0x05`) | `invalid MCU value` |
 | write to a read-only page | `MCU register is read only` |
 | read from a write-only page | `MCU register is write only` |
