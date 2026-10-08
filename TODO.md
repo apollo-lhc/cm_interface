@@ -23,7 +23,9 @@ temporary DEBUG firmware build) and a capture on an absent or NACKing supply. Sn
 ## Actionable now, no firmware needed
 
 - Clock programming Phases 1-2 (`clock_config.py` parser, `Clock.program`): pure Python,
-  but blocked on P0-a (hardware dump settling paged vs flat EEPROM layout).
+  but blocked on P0-a (hardware dump settling paged vs flat EEPROM layout). `Clock.program`
+  pushes Si5395 registers over `w CL` (16-bit `page<<8 | addr`, ProgCom writes the page
+  register), so it is unaffected by the EEPROM address width below.
 - Add an MCU hardware test under `tests/hw/` if a repeatable one is wanted
   (`exercise_mcu.py` is the only MCU hardware path today).
 
@@ -34,8 +36,7 @@ temporary DEBUG firmware build) and a capture on an absent or NACKing supply. Sn
 | FPGA profile layer (named registers, identity descriptor, GT-test adapter) | `FPGA_GENERIC_INTERFACE_PLAN.md` Phases 2-5 | a bitfile and a board with FPGAs; decisions 3-8 unsettled |
 | TCA9555 layer A (3V8 select straps) | `MCU_IOEXPANDER_PLAN.md` §4.1 | firmware, map minor 4, a System-page offset (`0x78`+) |
 | TCA9555 layers B, C (`IO` device; gated writes or named `0x7f` commands) | same, §4.2-4.3 | firmware; C needs maintainer sign-off |
-| Clock `EE` device and load trigger (Phases 3-6) | `CLOCK_PROGRAMMING_PLAN.md` | firmware; `EE` unresolved against `MCU_CLI_GAP_PLAN.md` §3.4; page/code numbering stale |
-| CERN-B CDR control | former `CDR_CONTROL_SUMMARY.md` (now in `../outdated/`) | CERN register documentation, then hardware |
+| Clock `EE` device and load trigger (Phases 3-6) | `CLOCK_PROGRAMMING_PLAN.md` | firmware: the clock EEPROM (0x50, bus 2) needs a 2-byte address and ProgCom `CL` is 1-byte; `EE` unresolved against `MCU_CLI_GAP_PLAN.md` §3.4; page/code numbering stale |
 | Staleness metadata (`updateTick`/`isFFStale`) as page `0x06` extension at `0x20`+ | UART7 plan §5 | unscheduled |
 
 ## Deferred
