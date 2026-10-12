@@ -1,0 +1,71 @@
+name: RPM
+
+on:
+  release:
+    types: [created]
+
+permissions:
+  contents: read
+
+jobs:
+  rpm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write # Required to attach RPMs to a release.
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Prepare RPM sources
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          version=0.0.0
+          if [[ "$GITHUB_EVENT_NAME" == release ]]; then
+            version="${RELEASE_TAG#v}"
+            if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo 'Release tags must have the form v1.2.3 or 1.2.3.' >&2
+              exit 1
+            fi
+          fi
+          release="${GITHUB_RUN_NUMBER}.git${GITHUB_SHA:0:12}"
+          echo "RPM_VERSION=$version" >> "$GITHUB_ENV"
+          echo "RPM_RELEASE=$release" >> "$GITHUB_ENV"
+          mkdir -p build/rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+          git archive --format=tar.gz --prefix="cm_interface-$version/" \
+            -o "build/rpmbuild/SOURCES/cm_interface-$version.tar.gz" HEAD
+          cp packaging/cm_interface.spec build/rpmbuild/SPECS/
+
+      - name: Build and verify Enterprise Linux 8 RPM
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE/build/rpmbuild:/rpmbuild" \
+            -e RPM_VERSION -e RPM_RELEASE \
+            rockylinux:8 bash -euo pipefail -c '
+              dnf install -y rpm-build python3-devel python3-pytest python3-pyserial
+              rpmbuild -ba /rpmbuild/SPECS/cm_interface.spec \
+                --define "_topdir /rpmbuild" \
+                --define "package_version $RPM_VERSION" \
+                --define "package_release $RPM_RELEASE"
+              dnf install -y /rpmbuild/RPMS/noarch/*.rpm
+              cd /tmp
+              python3 -c "from cm_interface import Registry, MCU, FPGA"
+              rpm -ql python3-cm-interface
+            '
+
+      - name: Upload RPMs to the new release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          gh release upload "$RELEASE_TAG" \
+            build/rpmbuild/RPMS/noarch/*.rpm \
+            build/rpmbuild/SRPMS/*.src.rpm
