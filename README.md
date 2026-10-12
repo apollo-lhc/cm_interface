@@ -50,6 +50,15 @@ The package supports Python 3.6 and newer and has no external dependency beyond
 fallback, so the `dataclasses` backport does not need to be installed on the
 target Zynq system.
 
+The `RPM` GitHub workflow builds an Enterprise Linux 8 package on pushes to
+`main` and when a GitHub release is created. Only release builds upload the
+binary RPM and source RPM as release assets. Use release tags of the form
+`v1.2.3` or `1.2.3`; push builds use version `0.0.0`. Each RPM release number
+includes the workflow run number and commit ID. The binary package is
+`python3-cm-interface`, targets the EL8 system Python 3.6, and includes the
+register JSON maps. Install a downloaded binary RPM with
+`sudo dnf install ./python3-cm-interface-*.noarch.rpm`.
+
 ## Basic usage
 ```python
 from cm_interface.registry import Registry
