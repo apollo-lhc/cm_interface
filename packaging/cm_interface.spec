@@ -32,7 +32,7 @@ install -m 0644 device/*.py %{buildroot}%{python3_sitelib}/cm_interface/device/
 install -m 0644 registers/*.json %{buildroot}%{python3_sitelib}/cm_interface/registers/
 
 %check
-PYTHONPATH=%{buildroot}%{python3_sitelib} %{__python3} -m pytest tests/
+PYTHONPATH=%{buildroot}%{python3_sitelib} %{__python3} -m pytest tests/ --ignore=tests/hw
 
 %files
 %doc README.md EXAMPLES.md MCU_REGISTER_MAP.md
