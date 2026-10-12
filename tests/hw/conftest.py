@@ -3,13 +3,14 @@
 These tests talk to a real UART device and real FireFly/Si5395/LGA80D
 modules. They must never run as part of the ordinary software test suite
 (``pytest cm_interface/tests/``), so this file uses pytest's
-``collect_ignore_glob`` hook to make every ``test_*.py`` file in this
+``collect_ignore`` hook to make every ``test_*.py`` file in this
 directory invisible to collection unless ``CM_INTERFACE_HW=1`` is set in the
 environment -- with the gate off, pytest never even imports these modules.
 
 See ``tests/hw/README.md`` for how to run this suite.
 """
 
+import glob
 import os
 
 import pytest
@@ -26,7 +27,12 @@ def _writes_enabled() -> bool:
 # Pytest collection hook: when the hardware gate is off, every test_*.py in
 # this directory is skipped at collection time (not imported, not run, not
 # reported) so it cannot interfere with a plain `pytest cm_interface/tests/`.
-collect_ignore_glob = [] if _hw_enabled() else ["test_*.py"]
+# Uses collect_ignore with an explicit glob, not collect_ignore_glob: the
+# latter needs pytest >= 4.3, and EL8 ships pytest 3.4.2.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+collect_ignore = [] if _hw_enabled() else [
+    os.path.basename(p) for p in glob.glob(os.path.join(_HERE, "test_*.py"))
+]
 
 DEV_PATH = os.environ.get("CM_INTERFACE_DEV_PATH", "/dev/ttyUL4")
 BOARD_SETUP = os.environ.get("CM_INTERFACE_BOARD_SETUP", "tf")
