@@ -32,7 +32,9 @@ jobs:
               exit 1
             fi
           fi
-          release="${GITHUB_RUN_NUMBER}.git${GITHUB_SHA:0:12}"
+          # Builds are always of a tag, so Release starts at 1; bump by hand
+          # if the same version ever needs rebuilding.
+          release=1
           echo "RPM_VERSION=$version" >> "$GITHUB_ENV"
           echo "RPM_RELEASE=$release" >> "$GITHUB_ENV"
           mkdir -p build/rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
