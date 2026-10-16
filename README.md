@@ -28,7 +28,9 @@ cm_interface/
 ├─ device/
 │  ├─ __init__.py
 │  ├─ base.py             # Abstract Device class
-│  ├─ si5395.py           # Clock implementation
+│  ├─ clock.py            # Shared clock base (SiClock, ClockHealth)
+│  ├─ si5395.py           # Si5395 clock (all positions on Rev3)
+│  ├─ si5341.py           # Si5341 clock (R0A on Rev2)
 │  ├─ firefly.py          # Tx, Rx, and 4‑channel firefly classes
 │  ├─ lga80d.py           # LGA80D DC-DC converter implementation
 │  ├─ mcu.py              # Command-module MCU register interface

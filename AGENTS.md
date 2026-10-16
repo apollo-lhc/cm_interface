@@ -218,7 +218,7 @@ reg = Registry(setup='tf')
 # providing clocks, LGA80Ds, the MCU, and both FPGA objects.
 
 # Access devices
-clock = reg.get_clock('R0A')          # Si5395 clock generator
+clock = reg.get_clock('R0A')          # Si5395 (Rev3) or Si5341 (Rev2)
 firefly = reg.get_firefly('F2_6')     # populated TF Firefly4 transceiver
 lga80d = reg.get_lga80d('F1VCCINT1') # LGA80D DC-DC converter
 mcu = reg.get_mcu()                   # ProgCom MC 0 client

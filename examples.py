@@ -168,8 +168,8 @@ def example_cdr_status_check():
 
 def example_clock_monitoring():
     """
-    Monitor Si5395 clock status using symbolic register names and
-    convenience methods.
+    Monitor clock status using convenience methods. R0A is an Si5341 on
+    Rev2 boards (no holdover), an Si5395 on Rev3.
     """
     print("=" * 70)
     print("Example 4: Clock Status Monitoring")
@@ -179,7 +179,7 @@ def example_clock_monitoring():
     
     # Iterate over all clocks
     for name, clock in reg.clocks.items():
-        print(f"\nClock {name}:")
+        print(f"\nClock {name} ({clock.CHIP}):")
         
         # Method 1: Using convenience properties
         print(f"  Device ID: 0x{clock.get_device_id():04X}")
@@ -191,7 +191,7 @@ def example_clock_monitoring():
         else:
             print(f"  ✗ PLL is NOT locked")
         
-        if clock.is_in_holdover():
+        if hasattr(clock, "is_in_holdover") and clock.is_in_holdover():
             print(f"  ⚠ In holdover mode")
         
         # Method 3: Check for loss of signal on inputs
@@ -199,9 +199,8 @@ def example_clock_monitoring():
             if clock.has_loss_of_signal(i):
                 print(f"  ⚠ LOS on Input {i}")
         
-        # Method 4: Read raw status register using symbolic name
-        status = clock.read_reg(Si5395Reg.LOL_HOLD_STATUS)
-        print(f"  LOL Status Register: 0x{int.from_bytes(status, 'big'):04X}")
+        # Method 4: Raw register that holds LOL (0x000E Si5395, 0x000C Si5341)
+        print(f"  LOL Status Register: 0x{clock.lol_status:02X}")
     
     print("\n" + "=" * 70)
 
@@ -358,7 +357,7 @@ def example_register_access_patterns():
     print("=" * 70)
     
     reg = Registry(setup='tf', dev_path='/dev/ttyUSB2')
-    clock = reg.get_clock('R0A')
+    clock = reg.get_clock('R0B')  # Si5395 on every board revision
     
     print("\nThree ways to read the LOL status register:")
     

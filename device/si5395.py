@@ -1,39 +1,10 @@
 from enum import IntEnum
-from typing import Tuple
 
-from ..compat import dataclass
-from ..errors import ClockNvmWriteRefused
-from .base import Device
+from .clock import ClockHealth, SiClock
 
+__all__ = ["Clock", "ClockHealth", "LolStatusBits", "LosStatusBits",
+           "Si5395Clock", "Si5395Reg"]
 
-@dataclass(frozen=True)
-class ClockHealth:
-    """Decoded live status from an Si5395."""
-
-    system_calibrating: bool
-    xa_xb_loss_of_signal: bool
-    xa_xb_error: bool
-    smbus_timeout: bool
-    loss_of_signal: Tuple[bool, bool, bool, bool]
-    out_of_frequency: Tuple[bool, bool, bool, bool]
-    loss_of_lock: bool
-    holdover: bool
-    pll_calibrating: bool
-    ready: bool
-
-    @property
-    def healthy(self) -> bool:
-        return not any((
-            self.system_calibrating,
-            self.xa_xb_loss_of_signal,
-            self.xa_xb_error,
-            self.smbus_timeout,
-            any(self.loss_of_signal),
-            any(self.out_of_frequency),
-            self.loss_of_lock,
-            self.holdover,
-            self.pll_calibrating,
-        )) and self.ready
 
 class Si5395Reg(IntEnum):
     """Register map for Si5395 clock generator (Page 0x00 registers).
@@ -144,14 +115,7 @@ class LosStatusBits(IntEnum):
     OOF_IN3 = 7
 
 
-# Writing these starts an NVM burn / bank read on the chip. Nothing in this
-# package should do that by accident, so Clock.write_reg refuses them.
-_NVM_CONTROL_REGS = frozenset(
-    (int(Si5395Reg.NVM_WRITE), int(Si5395Reg.NVM_READ_BANK))
-)
-
-
-class Clock(Device):
+class Si5395Clock(SiClock):
     """Concrete representation of an Si5395 clock generator.
 
     Parameters
@@ -162,10 +126,12 @@ class Clock(Device):
         Device address on the serial bus (e.g., 0x10 for R0A).
     name : str
         Logical identifier (e.g., "R0A", "R1B").
-    
+    verify_identity : bool
+        Check PN_BASE reads 0x5395 before the first health read or write.
+
     Examples
     --------
-    >>> clock = Clock(uart, address=0x10, name="R0A")
+    >>> clock = Si5395Clock(uart, address=0x10, name="R0A")
     >>> # Using symbolic register names (recommended)
     >>> status = clock.read_reg(Si5395Reg.LOL_HOLD_STATUS)
     >>> # Using convenience properties
@@ -174,64 +140,11 @@ class Clock(Device):
     >>> if clock.is_locked():
     ...     print("PLL is locked")
     """
-    def __init__(self, uart, address: int, name: str):
-        super().__init__(uart, address)
-        self.name = name
 
-    def _encode_command(self, reg: int, write: bool, payload: bytes = b"",
-                        read_size: int = 1) -> bytes:
-        return self._encode_ascii_command(
-            "CL", self.address - 0x10, reg, write, payload, read_size
-        )
-
-    def _decode_response(self, raw: bytes) -> bytes:
-        return self._decode_ascii_response(raw)
-
-    def write_reg(self, reg: int, data: bytes, allow_nvm: bool = False) -> None:
-        """Write registers, refusing any write that touches an NVM control register.
-
-        ``NVM_WRITE`` (0x00E3) burns the chip's non-volatile memory and
-        ``NVM_READ_BANK`` (0x00E4) loads a bank; a stray write to either is not
-        recoverable by this package. A multi-byte write that spans one of them
-        is refused too. ``allow_nvm=True`` is the explicit opt-in.
-        """
-        start = int(reg)
-        touched = [r for r in range(start, start + len(data)) if r in _NVM_CONTROL_REGS]
-        if touched and not allow_nvm:
-            raise ClockNvmWriteRefused(
-                "refusing write to Si5395 NVM control register 0x{:04X}; "
-                "pass allow_nvm=True to override".format(touched[0])
-            )
-        super().write_reg(reg, data)
-
-    @property
-    def mode(self) -> str:
-        """Return a mode inferred from documented live status registers."""
-        health = self.health
-        if health.system_calibrating or health.pll_calibrating:
-            return "calibrating"
-        if health.holdover:
-            return "holdover"
-        if health.loss_of_lock:
-            return "unlocked"
-        return "locked"
-
-    @property
-    def status(self) -> ClockHealth:
-        """Compatibility name for the structured live health snapshot."""
-        return self.health
-
-    def is_ready(self) -> bool:
-        """Return whether the device has finished its startup calibration.
-
-        This reads *only* DEVICE_READY, which is the sole register access
-        the manufacturer's startup sequence permits until the device
-        reports ready -- callers must not read/write anything else
-        beforehand. The device is ready only when this register reads
-        exactly ``0x0F``; any other nonzero value is still "not ready",
-        not a partial-ready state.
-        """
-        return self.read_reg(Si5395Reg.DEVICE_READY)[0] == 0x0F
+    CHIP = "Si5395"
+    EXPECTED_PN = 0x5395
+    REG = Si5395Reg
+    STICKY_FLAG_BYTES = 4
 
     @property
     def health(self) -> ClockHealth:
@@ -240,6 +153,7 @@ class Clock(Device):
         Do not call this until :meth:`is_ready` returns ``True`` --
         the registers read here are not part of the startup-safe set.
         """
+        self._ensure_identity()
         sysincal, los_oof, lol_hold, cal_pll = self.read_reg(
             Si5395Reg.SYSINCAL, size=4
         )
@@ -248,6 +162,7 @@ class Clock(Device):
             system_calibrating=bool(sysincal & (1 << 0)),
             xa_xb_loss_of_signal=bool(sysincal & (1 << 1)),
             xa_xb_error=bool(sysincal & (1 << 3)),
+            ref_loss_of_signal=None,
             smbus_timeout=bool(sysincal & (1 << 5)),
             loss_of_signal=tuple(bool(los_oof & (1 << i)) for i in range(4)),
             out_of_frequency=tuple(bool(los_oof & (1 << (i + 4))) for i in range(4)),
@@ -284,52 +199,12 @@ class Clock(Device):
         status = self.lol_status
         return bool(status & (1 << LolStatusBits.HOLD))
 
-    def get_device_id(self) -> int:
-        """Read device ID register (should be 0x5395)."""
-        data = self.read_reg(Si5395Reg.DEVICE_ID, size=2)
-        return int.from_bytes(data, "little")
-
-    @property
-    def device_id(self) -> int:
-        return self.get_device_id()
-
-    def get_device_rev(self) -> int:
-        """Read device revision."""
-        return self.read_reg(Si5395Reg.DEVICE_REV)[0]
-
-    @property
-    def device_revision(self) -> int:
-        return self.get_device_rev()
-
-    @property
-    def grade(self) -> int:
-        return self.read_reg(Si5395Reg.GRADE)[0]
-
-    @property
-    def temperature_grade(self) -> int:
-        return self.read_reg(Si5395Reg.TEMP_GRADE)[0]
-
-    @property
-    def package_id(self) -> int:
-        return self.read_reg(Si5395Reg.PKG_ID)[0]
-
-    @property
-    def design_id(self) -> str:
-        return self.read_ascii(Si5395Reg.DESIGN_ID, 8)
-
     @property
     def sticky_flags(self) -> bytes:
         return self.read_reg(Si5395Reg.SYSINCAL_FLAG, size=4)
 
     def clear_sticky_flags(self) -> None:
         self.write_reg(Si5395Reg.SYSINCAL_FLAG, bytes(4))
-
-    def reset(self, soft: bool = True) -> None:
-        """Perform device reset."""
-        if soft:
-            self.write_reg(Si5395Reg.SOFT_RESET, b"\x01")
-        else:
-            self.write_reg(Si5395Reg.POWER_DOWN, bytes([0x02]))
 
     def set_input_select(self, input_num: int) -> None:
         """Manually select input clock (0-3)."""
@@ -342,9 +217,6 @@ class Clock(Device):
         """Enable or disable hitless input switching."""
         self.update_bits(Si5395Reg.HSW_EN, 0x04, 0x04 if enable else 0x00)
 
-    def get_register_name(self, addr: int) -> str:
-        """Get symbolic name for a register address."""
-        for reg in Si5395Reg:
-            if reg.value == addr:
-                return reg.name
-        return f"0x{addr:04X}"
+
+# Historical name: every clock was an Si5395 before Rev2 support.
+Clock = Si5395Clock
