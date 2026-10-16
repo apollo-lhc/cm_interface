@@ -537,7 +537,7 @@ example_disable_cdr_all_fireflies()
 | Method | Description |
 |--------|-------------|
 | `Registry(setup='tf')` | Create registry with board preset ('tf', 'it_dtc', or None) |
-| `get_clock(name)` | Get Si5395 clock by name (e.g., 'R0A') |
+| `get_clock(name)` | Get clock by name (e.g., 'R0A'); Si5341 or Si5395 by board revision |
 | `get_firefly(loc)` | Get a configured Firefly by location; raises `KeyError` when absent |
 | `get_lga80d(name)` | Get LGA80D converter by supply name |
 

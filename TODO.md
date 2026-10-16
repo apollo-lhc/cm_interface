@@ -12,8 +12,11 @@ except where marked HW-verified. Delete an item when it lands.
   Phase 3 firmware lands.
 - **`FPGA.write_reg` has no guard**, against the refuse-by-default rule in `CLAUDE.md`.
   Open decision 3 in `FPGA_GENERIC_INTERFACE_PLAN.md` (`unsafe=True` opt-in vs warning).
-
-- **Clocks doesn't respect Rev2 vs Rev3 differences** Rev2 has a Si5341 in position R0A, Rev3 has Si5395. Need to think about how to handle that.
+- **Rev2 Si5341 (R0A) alarm rules are only partly hardware-checked.** Board 210 (2026-10-16)
+  confirmed hw rev 2, PN 0x5341, the status/flag decode and the dump layout on a healthy,
+  locked R0A (now the test fixture). The `clock_checks.py` expected-alarm rules (LOS on an
+  unselected input, FB_IN outside zero delay mode, pin-selected reference) are still from
+  the reference manual only.
 
 ## LGA80D snapshot follow-ups
 

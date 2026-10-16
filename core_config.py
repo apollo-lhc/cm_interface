@@ -1,6 +1,6 @@
 """Immutable wiring configuration for all boards.
 
-Clocks (Si5395) and DC‑DC converters (LGA80D) have fixed UART addresses that are
+Clocks (Si5395, plus an Si5341 at R0A on Rev2) and DC‑DC converters (LGA80D) have fixed UART addresses that are
 soldered onto the PCB.  These mappings never change at runtime – they are stored
 in a frozen dataclass so any accidental mutation raises an error.
 """
@@ -36,3 +36,14 @@ CORE_CONFIG: CoreConfig = CoreConfig(
         "F2AVTT/CC": 0x46,
     },
 )
+
+
+# Clock chip at each position, by board revision (MCU HARDWARE_REVISION).
+# cm_mcu LocalTasks.c clk_moni2c_addrs[]: REV2 has an Si5341 (0x77) at R0A,
+# REV3 has Si5395s (0x6b) everywhere. Rev1 firmware has no ProgCom.
+CLOCK_CHIPS: Mapping[int, Mapping[str, str]] = {
+    2: {"R0A": "si5341", "R0B": "si5395", "R1A": "si5395", "R1B": "si5395",
+        "R1C": "si5395"},
+    3: {"R0A": "si5395", "R0B": "si5395", "R1A": "si5395", "R1B": "si5395",
+        "R1C": "si5395"},
+}

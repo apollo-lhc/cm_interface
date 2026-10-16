@@ -421,8 +421,9 @@ class MCU(Device):
     Register numbers use the normal package convention ``page << 8 | offset``.
     """
 
-    # Class-level default so test doubles that skip ``__init__`` still work.
+    # Class-level defaults so test doubles that skip ``__init__`` still work.
     _capabilities = None
+    _hardware_revision = None
 
     _CAPABILITY_FOR_PAGE = {
         McuPage.POWER: McuCapability.POWER,
@@ -438,6 +439,7 @@ class MCU(Device):
     def __init__(self, uart):
         super().__init__(uart, address=0)
         self._capabilities = None
+        self._hardware_revision = None
 
     def _encode_command(self, reg: int, write: bool, payload: bytes = b"",
                         read_size: int = 1) -> bytes:
@@ -482,6 +484,19 @@ class MCU(Device):
                 self._read_u32(McuPage.SYSTEM, SystemReg.CAPABILITIES)
             )
         return self._capabilities
+
+    def hardware_revision(self, refresh: bool = False) -> int:
+        """Return the board revision, cached after the first read.
+
+        The firmware takes this from the board EEPROM (``first_mcu`` /
+        ``set_id``), not from the REV it was compiled for, so an unprogrammed
+        EEPROM gives a meaningless value. Pass ``refresh=True`` to re-read.
+        """
+        if refresh or self._hardware_revision is None:
+            self._hardware_revision = self._read_u8(
+                McuPage.SYSTEM, SystemReg.HARDWARE_REVISION
+            )
+        return self._hardware_revision
 
     def _require_page(self, page: McuPage, check: bool = True) -> None:
         """Refuse to touch a page the firmware does not advertise.
