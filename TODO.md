@@ -13,6 +13,8 @@ except where marked HW-verified. Delete an item when it lands.
 - **`FPGA.write_reg` has no guard**, against the refuse-by-default rule in `CLAUDE.md`.
   Open decision 3 in `FPGA_GENERIC_INTERFACE_PLAN.md` (`unsafe=True` opt-in vs warning).
 
+- **Clocks doesn't respect Rev2 vs Rev3 differences** Rev2 has a Si5341 in position R0A, Rev3 has Si5395. Need to think about how to handle that.
+
 ## LGA80D snapshot follow-ups
 
 `LGA80D.read_snapshot`, `lga80d_dump.py --snapshot` and the firmware `SN` device are
@@ -38,6 +40,7 @@ temporary DEBUG firmware build) and a capture on an absent or NACKing supply. Sn
 | TCA9555 layers B, C (`IO` device; gated writes or named `0x7f` commands) | same, §4.2-4.3 | firmware; C needs maintainer sign-off |
 | Clock `EE` device and load trigger (Phases 3-6) | `CLOCK_PROGRAMMING_PLAN.md` | firmware: the clock EEPROM (0x50, bus 2) needs a 2-byte address and ProgCom `CL` is 1-byte; `EE` unresolved against `MCU_CLI_GAP_PLAN.md` §3.4; page/code numbering stale |
 | Staleness metadata (`updateTick`/`isFFStale`) as page `0x06` extension at `0x20`+ | UART7 plan §5 | unscheduled |
+| LGA80D CLEAR_FAULTS (03h, global, 0 data bytes = SMBus Send Byte): `LGA80D.clear_faults()` and a script option | CM3001 F1VCCINT 2-phase test, 2026-10-13 | firmware: ProgCom rejects a `w DC` with no data (`ProgComTask.c:259`, "write with no data"). Workaround today, MCU CLI: `semaphore 1 take`; `i2cw 1 70 1 <mux bit>`; `i2cw 1 <addr> 1 03`; `semaphore 1 release` (mux bits and addresses in `pm_addrs_dcdc[]`, `LocalTasks.c:409`; untested on HW) |
 
 ## Deferred
 
