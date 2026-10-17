@@ -126,8 +126,6 @@ class Si5395Clock(SiClock):
         Device address on the serial bus (e.g., 0x10 for R0A).
     name : str
         Logical identifier (e.g., "R0A", "R1B").
-    verify_identity : bool
-        Check PN_BASE reads 0x5395 before the first health read or write.
 
     Examples
     --------
@@ -144,7 +142,6 @@ class Si5395Clock(SiClock):
     CHIP = "Si5395"
     EXPECTED_PN = 0x5395
     REG = Si5395Reg
-    STICKY_FLAG_BYTES = 4
 
     @property
     def health(self) -> ClockHealth:
@@ -153,7 +150,6 @@ class Si5395Clock(SiClock):
         Do not call this until :meth:`is_ready` returns ``True`` --
         the registers read here are not part of the startup-safe set.
         """
-        self._ensure_identity()
         sysincal, los_oof, lol_hold, cal_pll = self.read_reg(
             Si5395Reg.SYSINCAL, size=4
         )

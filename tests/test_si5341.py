@@ -47,9 +47,9 @@ SI5341_READY = {0x00FE: 0x0F, 0x0002: 0x41, 0x0003: 0x53,
 SI5395_READY = {0x00FE: 0x0F, 0x0002: 0x95, 0x0003: 0x53}
 
 
-def _clock(cls, regs, verify=False):
+def _clock(cls, regs):
     uart = RegUART(dict(regs))
-    return cls(uart, address=0x10, name="R0A", verify_identity=verify), uart
+    return cls(uart, address=0x10, name="R0A"), uart
 
 
 class Si5341HealthTest(unittest.TestCase):
@@ -128,39 +128,23 @@ class Si5341SharedBehaviorTest(unittest.TestCase):
 
 
 class IdentityCheckTest(unittest.TestCase):
-    def test_mismatch_raises_before_health_read(self):
-        clock, uart = _clock(Si5341Clock, SI5395_READY, verify=True)
-        with self.assertRaisesRegex(ClockIdentityError, "0x5395.*0x5341"):
-            clock.health
-        self.assertNotIn(0x000C, uart.read_addrs())
+    def test_match_returns_pn(self):
+        for cls, regs, pn in ((Si5341Clock, SI5341_READY, 0x5341),
+                              (Si5395Clock, SI5395_READY, 0x5395)):
+            clock, uart = _clock(cls, regs)
+            self.assertEqual(clock.verify_identity(), pn)
+            self.assertEqual(uart.writes, [b"r CL 0 0 2 2\n"])
 
-    def test_mismatch_blocks_writes(self):
-        clock, uart = _clock(Si5395Clock, SI5341_READY, verify=True)
-        with self.assertRaises(ClockIdentityError):
-            clock.clear_sticky_flags()
-        self.assertFalse(any(w.startswith(b"w ") for w in uart.writes))
+    def test_mismatch_raises_both_ways(self):
+        for cls, regs in ((Si5341Clock, SI5395_READY), (Si5395Clock, SI5341_READY)):
+            clock, _ = _clock(cls, regs)
+            with self.assertRaises(ClockIdentityError):
+                clock.verify_identity()
 
-    def test_match_is_checked_once(self):
-        clock, uart = _clock(Si5341Clock, SI5341_READY, verify=True)
-        clock.health
-        clock.health
-        self.assertEqual(uart.read_addrs().count(0x0002), 1)
-
-    def test_not_ready_skips_the_check(self):
-        clock, uart = _clock(Si5341Clock, {0x00FE: 0x00, 0x0002: 0x95, 0x0003: 0x53},
-                             verify=True)
-        clock.reset()
-        self.assertNotIn(0x0002, uart.read_addrs())
-        self.assertEqual(uart.writes[-1], b"w CL 0 0 1C 01\n")
-
-    def test_off_by_default(self):
+    def test_not_checked_implicitly(self):
         clock, uart = _clock(Si5341Clock, SI5395_READY)
         clock.health
         self.assertNotIn(0x0002, uart.read_addrs())
-
-    def test_verify_identity_returns_pn(self):
-        clock, _ = _clock(Si5395Clock, SI5395_READY)
-        self.assertEqual(clock.verify_identity(), 0x5395)
 
 
 class RegistryRevisionTest(unittest.TestCase):
@@ -189,10 +173,6 @@ class RegistryRevisionTest(unittest.TestCase):
             self.assertEqual({n: c.name for n, c in registry.clocks.items()},
                              {n: n for n in CORE_CONFIG.clocks})
 
-    def test_registry_clocks_verify_identity(self):
-        registry = Registry(hw_rev=2)
-        self.assertTrue(all(c._verify for c in registry.clocks.values()))
-
     def test_unknown_revision_raises(self):
         for rev in (0, 1, 0xFF):
             Registry._instance = None
@@ -218,15 +198,11 @@ class RegistryRevisionTest(unittest.TestCase):
 
 
 class McuHardwareRevisionTest(unittest.TestCase):
-    def test_cached_u8_read_of_system_offset_6(self):
+    def test_u8_read_of_system_offset_6(self):
         from cm_interface.device.mcu import MCU
         uart = RegUART({0x0006: 2})
-        mcu = MCU(uart)
-        self.assertEqual(mcu.hardware_revision(), 2)
-        self.assertEqual(mcu.hardware_revision(), 2)
+        self.assertEqual(MCU(uart).hardware_revision(), 2)
         self.assertEqual(uart.writes, [b"r MC 0 0 6 1\n"])
-        mcu.hardware_revision(refresh=True)
-        self.assertEqual(len(uart.writes), 2)
 
 
 if __name__ == "__main__":

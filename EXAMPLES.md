@@ -240,6 +240,7 @@ for name, clock in reg.clocks.items():
 
 ```python
 # Method 1: Symbolic register names (RECOMMENDED)
+# Si5395 register; on Rev2, R0A is an Si5341 (use Si5341Reg there)
 status = clock.read_reg(Si5395Reg.LOL_HOLD_STATUS)
 mode = clock.mode
 
@@ -418,7 +419,7 @@ The same operations are available from the hardware exercise script:
 ```python
 # ✓ RECOMMENDED: Symbolic names
 from cm_interface.device.si5395 import Si5395Reg
-status = clock.read_reg(Si5395Reg.LOL_HOLD_STATUS)
+status = clock.read_reg(Si5395Reg.LOL_HOLD_STATUS)  # Si5395 only (not R0A on Rev2)
 
 # ✓ RECOMMENDED: Convenience methods
 if clock.is_locked():

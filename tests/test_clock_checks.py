@@ -1,3 +1,4 @@
+import argparse
 import contextlib
 import io
 import unittest
@@ -240,10 +241,38 @@ class DumpLayoutTest(unittest.TestCase):
         for addr in (0x000C, 0x0021, 0x0108, 0x013A, 0x024A, 0x0268, 0x0235, 0x091C):
             self.assertIn(addr, addrs, hex(addr))
 
-    def test_si5395_default_layout(self):
-        self.assertEqual(clock_dump.addresses(),
-                         clock_dump.addresses(clock_dump.LAYOUTS["Si5395"]))
-        self.assertIn(0x0515, clock_dump.addresses())
+    def test_si5341_dump_renders(self):
+        # Board 210 R0A status registers plus its dump's divider values: P0 = 3
+        # (integer, no denominator), M = 125.11..., N0 = 21; OUT0 on N0 with R = 2.
+        regs = dict(BOARD210_R0A)
+        regs[0x0208] = 3
+        regs.update(zip(range(0x0235, 0x023B), (360777252864).to_bytes(6, "little")))
+        regs.update(zip(range(0x023B, 0x023F), (2883584000).to_bytes(4, "little")))
+        regs.update(zip(range(0x0302, 0x0308), (45097156608).to_bytes(6, "little")))
+        regs.update(zip(range(0x0308, 0x030C), (2147483648).to_bytes(4, "little")))
+        regs.update({0x0108: 0x06, 0x0109: 0x09, 0x010B: 0x00, 0x0A03: 0x01})
+
+        class Reg(object):
+            def get_clock(self, name):
+                return Si5341Clock(FakeUART(regs), address=0x10, name=name)
+
+        args = argparse.Namespace(dev_path="/dev/fake", out_dir=None)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            failed = clock_dump.dump_clock(Reg(), "R0A", args, [], None, echo=True)
+        text = out.getvalue()
+        self.assertFalse(failed, text)
+        self.assertIn("Si5341 register dump", text)
+        self.assertIn("part:      Si5341A-D", text)
+        self.assertIn("0x000C  0xC0  SYSINCAL=0  LOSXAXB=0  LOSREF=0  LOL=0", text)
+        self.assertIn("IN_SEL_REGCTRL=1(register)  IN_SEL=0(IN0)", text)
+        self.assertIn("LOS_EN=1(IN0)  LOSXAXB_DIS=1", text)
+        self.assertRegex(text, r"P0 +3 +- +3 ")
+        self.assertIn("125.114181818", text)
+        self.assertRegex(text, r"OUT0 +0  1 diff .* N0 .* 2\(F2\) +42\.000000")
+        self.assertRegex(text, r"N0 .*21\.000000000 .* - +- ")
+        self.assertNotIn("OUT0A", text)
+        self.assertNotIn("MXAXB", text)
 
 
 if __name__ == "__main__":

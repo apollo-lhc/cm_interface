@@ -79,6 +79,7 @@ if not __package__:
         sys.path.insert(0, _package_parent)
 
 from cm_interface.core_config import CORE_CONFIG
+from cm_interface.device.clock import DEVICE_READY_VALUE
 from cm_interface.device.si5341 import Si5341Reg
 from cm_interface.device.si5395 import Si5395Reg
 from cm_interface.errors import ClockIdentityError, CMError
@@ -86,7 +87,6 @@ from cm_interface.registry import Registry
 
 EXPECTED_ERRORS = (CMError, OSError, TimeoutError, ValueError, RuntimeError)
 
-DEVICE_READY_VALUE = 0x0F
 IN_ACTV = 0x0507          # bits 7:6, currently selected DSPLL input (read only)
 LOS_EN = 0x002C           # bits 3:0 LOS_EN per input, bit 4 LOSXAXB_DIS
 OOF_EN = 0x003F           # bits 3:0 OOF_EN, bits 7:4 FAST_OOF_EN per input
@@ -253,14 +253,11 @@ def check_id(clock, mon=None):
           "DESIGN_ID %r  ACTIVE_NVM_BANK 0x%02X (%s)"
           % (clock.name, device_id, device_id, _letter(grade), _letter(rev), temp_grade,
              pkg, design_id, nvm, NVM_BANKS.get(nvm, "unexpected value")))
-    ok = True
-    if device_id != clock.EXPECTED_PN:
-        print("     -> DEVICE_ID is not 0x%04X (%s)" % (clock.EXPECTED_PN, clock.CHIP))
-        ok = False
+    # PN_BASE was already checked by check_identity.
     if nvm not in NVM_BANKS:
         print("     -> ACTIVE_NVM_BANK is not one of the documented values")
-        ok = False
-    return ok
+        return False
+    return True
 
 
 def check_status(clock, mon):
@@ -506,7 +503,8 @@ def main():
     try:
         clocks = reg.clocks
     except EXPECTED_ERRORS as exc:
-        print("cannot determine clock chips: %s" % _format_error(exc))
+        print("cannot determine clock chips: %s (use --hw-rev N to set the board "
+              "revision)" % _format_error(exc))
         return 1
     print("board revision %d%s: %s" % (
         reg.hw_rev, " (--hw-rev)" if args.hw_rev is not None else " (MCU)",
