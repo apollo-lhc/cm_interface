@@ -47,10 +47,10 @@ if not __package__:
 from collections import namedtuple
 
 from cm_interface.core_config import CORE_CONFIG
+from cm_interface.device.clock import DEVICE_READY_VALUE
 from cm_interface.lga80d_dump import board_info
 from cm_interface.registry import Registry
 
-DEVICE_READY_VALUE = 0x0F
 MAX_READ_BYTES = 4
 
 # ---------------------------------------------------------------- decoders
@@ -251,7 +251,7 @@ def _parse_fields(spec):
     return fields
 
 
-def addresses(layout=LAYOUTS["Si5395"]):
+def addresses(layout):
     """Every register address the dump reads for a layout (sorted)."""
     addrs = set()
     for addr, _ in layout.regs:
@@ -319,7 +319,7 @@ class Values(object):
         return None if None in raw else bytes(raw)
 
 
-def _fmt_field(name, value, decoders=FIELD_DECODE):
+def _fmt_field(name, value, decoders):
     decode = decoders.get(name)
     return "%s=%d%s" % (name, value, "(%s)" % decode(value) if decode else "")
 
@@ -347,7 +347,7 @@ def identity_lines(vals):
         part, "?" if opn is None else _ascii(opn), "?" if design is None else _ascii(design))]
 
 
-def output_lines(vals, layout=LAYOUTS["Si5395"]):
+def output_lines(vals, layout):
     lines = ["", "  -- outputs (%s) --" % layout.outputs_title,
              "  %-6s %3s %2s %-7s %4s %3s %4s %4s %3s %3s %-4s %4s %3s %8s %12s" % (
                  "OUTPUT", "PDN", "OE", "FORMAT", "SYNC", "DIS", "CDRV", "AMPL", "CM",
@@ -382,7 +382,7 @@ def output_lines(vals, layout=LAYOUTS["Si5395"]):
     return lines
 
 
-def divider_lines(vals, layout=LAYOUTS["Si5395"]):
+def divider_lines(vals, layout):
     lines = ["", "  -- dividers %s --" % layout.dividers_title,
              "  %-6s %18s %12s %18s  %s" % ("DIV", "NUM", "DEN", "NUM/DEN", "FRAC")]
     for name, num, nnum, den, frac in layout.p_divs + layout.m_divs:
@@ -428,7 +428,7 @@ def divider_lines(vals, layout=LAYOUTS["Si5395"]):
     return lines
 
 
-def field_lines(vals, layout=LAYOUTS["Si5395"]):
+def field_lines(vals, layout):
     lines = ["", "  -- status and configuration --", "  %-7s %-4s  %s" % ("ADDR", "RAW", "FIELDS")]
     for addr, spec in sorted(layout.regs):
         v = vals.u8(addr)
@@ -527,7 +527,8 @@ def main():
     try:
         reg.clocks
     except Exception as exc:
-        print("cannot determine clock chips: %s" % exc)
+        print("cannot determine clock chips: %s (use --hw-rev N to set the board "
+              "revision)" % exc)
         return 1
     if args.out_dir:
         os.makedirs(args.out_dir, exist_ok=True)

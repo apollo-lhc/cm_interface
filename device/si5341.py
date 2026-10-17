@@ -19,62 +19,24 @@ __all__ = ["Si5341Clock", "Si5341Reg", "Si5341StatusBits"]
 
 
 class Si5341Reg(IntEnum):
-    """Si5341 registers used by this package (Si5341/40 RM Rev 1.3, ch. 14)."""
-    PAGE = 0x0001
+    """Si5341 registers used by this package (Si5341/40 RM Rev 1.3, ch. 14).
+
+    Only what the code reads; clock_dump.py carries its own address tables.
+    """
     DEVICE_ID = 0x0002          # PN_BASE, 2 bytes little-endian
-    GRADE = 0x0004
-    DEVICE_REV = 0x0005
-    TEMP_GRADE = 0x0009
-    PKG_ID = 0x000A
-    I2C_ADDR = 0x000B
-
-    # Status: SYSINCAL, LOSXAXB, LOSREF, LOL, SMBUS_TIMEOUT
-    STATUS = 0x000C
+    STATUS = 0x000C             # SYSINCAL, LOSXAXB, LOSREF, LOL, SMBUS_TIMEOUT
     LOS_STATUS = 0x000D         # LOSIN[3:0] = FB_IN, IN2, IN1, IN0
-
-    # Sticky flags
-    STATUS_FLAG = 0x0011
-    LOS_FLAG = 0x0012
-
-    # Interrupt masks
-    INT_MASK_0 = 0x0017
-    INT_MASK_1 = 0x0018
-
-    # Reset and control
-    SOFT_RESET = 0x001C
-    FINC_FDEC = 0x001D
-    POWER_DOWN = 0x001E         # bit 0 PDN, bit 1 HARD_RST, bit 2 SYNC
-    IN_SEL_REGCTRL = 0x0021     # bit 0 REGCTRL, bits 2:1 IN_SEL
-
-    # LOS configuration
+    STATUS_FLAG = 0x0011        # sticky copies of 0x000C
+    IN_SEL_REGCTRL = 0x0021     # bit 0 REGCTRL, bits 2:1 IN_SEL (3 = XA/XB)
     LOS_ENABLE = 0x002C         # bits 3:0 LOS_EN, bit 4 LOSXAXB_DIS
-    LOL_SET_THR = 0x009E
-
-    # NVM
     ACTIVE_NVM_BANK = 0x00E2
     NVM_WRITE = 0x00E3
     NVM_READ_BANK = 0x00E4
-
     DEVICE_READY = 0x00FE
-
-    # Outputs
     OUTALL_DISABLE = 0x0102
     OUT_PDN_ALL = 0x0145
-
-    # Dividers and reference
-    PXAXB = 0x0206
-    M_NUM = 0x0235
-    M_DEN = 0x023B
-    DESIGN_ID = 0x026B
-    OPN_ID = 0x0278
-    XAXB_EXTCLK_EN = 0x090E
-    ZDM_EN = 0x091C
+    ZDM_EN = 0x091C             # 3 = zero delay mode, 4 = normal
     IN_EN = 0x0949              # bits 3:0 = FB_IN, IN2, IN1, IN0
-    IN_TO_PFD_EN = 0x094A       # bits 6:4 = IN2, IN1, IN0
-
-    # Frequency-change preamble/postamble (RM section 7)
-    FREQ_CHANGE_PREAMBLE_1 = 0x0B24
-    FREQ_CHANGE_PREAMBLE_2 = 0x0B25
 
 
 class Si5341StatusBits(IntEnum):
@@ -97,7 +59,6 @@ class Si5341Clock(SiClock):
     CHIP = "Si5341"
     EXPECTED_PN = 0x5341
     REG = Si5341Reg
-    STICKY_FLAG_BYTES = 2
 
     @property
     def health(self) -> ClockHealth:
@@ -106,7 +67,6 @@ class Si5341Clock(SiClock):
         Do not call this until :meth:`is_ready` returns ``True`` --
         the registers read here are not part of the startup-safe set.
         """
-        self._ensure_identity()
         status, los = self.read_reg(Si5341Reg.STATUS, size=2)
         ready = self.is_ready()
         return ClockHealth(

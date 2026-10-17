@@ -198,7 +198,7 @@ from cm_interface.device.si5395 import Si5395Reg
 reg = Registry(setup='tf')
 
 # Access clock - Method 1: Symbolic register names (recommended)
-clock = reg.get_clock('R0A')
+clock = reg.get_clock('R0B')  # Si5395 on every revision; R0A is an Si5341 on Rev2
 status = clock.read_reg(Si5395Reg.LOL_HOLD_STATUS)  # Clear, self-documenting
 
 # Access clock - Method 2: Convenience properties

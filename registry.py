@@ -178,9 +178,8 @@ class Registry:
     def clocks(self) -> Dict[str, SiClock]:
         """Clock devices by name, typed for this board revision.
 
-        Raises ``ValueError`` for a revision with no known clock layout.
-        Each clock checks its PN_BASE on first use and raises
-        ``ClockIdentityError`` if the chip is not the expected one.
+        Raises ``ValueError`` for a revision with no known clock layout. The
+        chips are not checked; ``clock.verify_identity()`` does that.
         """
         if self._clocks is None:
             rev = self.hw_rev
@@ -193,8 +192,7 @@ class Registry:
                     "hw_rev= to Registry" % (rev, sorted(CLOCK_CHIPS))
                 ) from None
             self._clocks = {
-                name: CLOCK_CLASSES[chips[name]](self.uart, addr, name,
-                                                 verify_identity=True)
+                name: CLOCK_CLASSES[chips[name]](self.uart, addr, name)
                 for name, addr in CORE_CONFIG.clocks.items()
             }
         return self._clocks
@@ -203,7 +201,9 @@ class Registry:
     def get_clock(self, name: str) -> SiClock:
         """Return the clock instance identified by ``name``.
 
-        Raises ``KeyError`` if the clock does not exist.
+        Raises ``KeyError`` for an unknown name. The first call builds
+        ``clocks``, so it can also raise ``ValueError`` (unknown board
+        revision) or a UART/register error from reading the revision.
         """
         return self.clocks[name]
 

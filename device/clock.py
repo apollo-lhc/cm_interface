@@ -72,24 +72,17 @@ class SiClock(Device):
     """Common behavior of the clock chips reached over ProgCom ``CL``.
 
     Subclasses set ``CHIP``, ``EXPECTED_PN``, ``REG`` (their register
-    IntEnum) and implement ``health``.
-
-    With ``verify_identity=True`` (what :class:`~cm_interface.registry.Registry`
-    passes) the first ``health`` read or register write checks PN_BASE
-    against ``EXPECTED_PN`` and raises :class:`ClockIdentityError` on a
-    mismatch. The check is skipped while the chip is not ready, because the
-    reference manuals permit no access but DEVICE_READY until then.
+    IntEnum) and implement ``health``. Nothing checks automatically that the
+    chip is the expected part; call :meth:`verify_identity` for that.
     """
 
     CHIP = None
     EXPECTED_PN = None
     REG = None
 
-    def __init__(self, uart, address: int, name: str, verify_identity: bool = False):
+    def __init__(self, uart, address: int, name: str):
         super().__init__(uart, address)
         self.name = name
-        self._verify = verify_identity
-        self._identity_ok = False
 
     def _encode_command(self, reg: int, write: bool, payload: bytes = b"",
                         read_size: int = 1) -> bytes:
@@ -113,12 +106,7 @@ class SiClock(Device):
                 "and that the firmware was built for this board"
                 % (self.name, pn, self.EXPECTED_PN, self.CHIP)
             )
-        self._identity_ok = True
         return pn
-
-    def _ensure_identity(self) -> None:
-        if self._verify and not self._identity_ok and self.is_ready():
-            self.verify_identity()
 
     def write_reg(self, reg: int, data: bytes, allow_nvm: bool = False) -> None:
         """Write registers, refusing any write that touches an NVM control register.
@@ -135,7 +123,6 @@ class SiClock(Device):
                 "refusing write to %s NVM control register 0x%04X; "
                 "pass allow_nvm=True to override" % (self.CHIP, touched[0])
             )
-        self._ensure_identity()
         super().write_reg(reg, data)
 
     @property
