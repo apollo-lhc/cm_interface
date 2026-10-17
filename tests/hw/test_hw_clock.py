@@ -1,9 +1,10 @@
-"""Hardware-runnable checks for the Si5395 clock generator.
+"""Hardware-runnable checks for the clock chips (Si5395; Si5341 at R0A on Rev2).
 
 Focused on what this session's audit fix touched (S01: DEVICE_READY must
 read exactly 0x0F, not merely nonzero) plus a strong, self-verifying wiring
-sanity check (DEVICE_ID must read back 0x5395 -- if the register addresses
-or framing were wrong, this would almost certainly not match by accident).
+sanity check (DEVICE_ID must read back the part the board revision implies,
+0x5395 or 0x5341 -- if the register addresses, framing or the board revision
+were wrong, this would almost certainly not match by accident).
 
 Run with -s to see the printed telemetry.
 """
@@ -11,15 +12,17 @@ Run with -s to see the printed telemetry.
 from cm_interface.core_config import CORE_CONFIG
 
 
-def test_device_id_identifies_si5395(hw_registry):
-    """Read-only wiring sanity check: DEVICE_ID must read back 0x5395."""
+def test_device_id_matches_board_revision(hw_registry):
+    """Read-only wiring sanity check: DEVICE_ID must be the expected chip."""
+    print(f"hw rev: {hw_registry.hw_rev}")
     mismatches = []
     for name in CORE_CONFIG.clocks:
         clock = hw_registry.get_clock(name)
         device_id = clock.get_device_id()
-        print(f"{name}: device_id=0x{device_id:04X}")
-        if device_id != 0x5395:
-            mismatches.append(f"{name}: device_id=0x{device_id:04X}, expected 0x5395")
+        print(f"{name}: {clock.CHIP} device_id=0x{device_id:04X}")
+        if device_id != clock.EXPECTED_PN:
+            mismatches.append(f"{name}: device_id=0x{device_id:04X}, "
+                              f"expected 0x{clock.EXPECTED_PN:04X} ({clock.CHIP})")
     assert not mismatches, "\n".join(mismatches)
 
 

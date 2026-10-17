@@ -65,14 +65,32 @@ def _format_error(exc):
     return " (caused by: ".join(messages) + ")" * (len(messages) - 1)
 
 
+def _warn(message):
+    """Print an indented warning line. The marker falls back to ASCII when
+    stdout can't encode it (e.g. Python 3.6 under a C locale), so reporting a
+    failure never raises UnicodeEncodeError itself."""
+    encoding = getattr(sys.stdout, "encoding", None)
+    marker = "\u26a0"
+    if encoding:
+        try:
+            marker.encode(encoding)
+        except (LookupError, UnicodeEncodeError):
+            marker = "!"
+    print(f"  {marker} {message}")
+
+
 def _run_section(title, fn):
+    """Run one section; return True if it failed (an unadvertised page is not
+    a failure)."""
     print(f"\n--- {title} " + "-" * max(0, 50 - len(title)))
     try:
         fn()
     except McuCapabilityUnavailable:
         print("  not advertised by firmware")
     except EXPECTED_HARDWARE_ERRORS as exc:
-        print(f"  ⚠ {_format_error(exc)}")
+        _warn(_format_error(exc))
+        return True
+    return False
 
 
 def exercise_system(mcu):
@@ -97,7 +115,7 @@ def exercise_system(mcu):
             print(f"  ff present mask:  0x{info.ff_present_mask:08X}")
             print(f"  build type:       {info.build_type!r}")
             print(f"  build time:       {info.build_time!r}")
-    _run_section("System (0x00)", go)
+    return _run_section("System (0x00)", go)
 
 
 def exercise_config(mcu):
@@ -108,7 +126,7 @@ def exercise_config(mcu):
         print(f"  temp threshold TM4C:  {cfg.alarm_temp_tm4c} C")
         print(f"  temp threshold FPGA:  {cfg.alarm_temp_fpga} C")
         print(f"  voltage threshold:    {cfg.alarm_volt_threshold_percent:.2f} %")
-    _run_section("Config (0x05)", go)
+    return _run_section("Config (0x05)", go)
 
 
 def exercise_runtime(mcu):
@@ -121,7 +139,7 @@ def exercise_runtime(mcu):
         print(f"  zynqmon transmit:    {info.zynqmon_transmit_enabled}")
         print(f"  fpga done:           {info.fpga_done!r}")
         print(f"  rtc:                 {info.rtc.isoformat()}")
-    _run_section("Runtime (0x06)", go)
+    return _run_section("Runtime (0x06)", go)
 
 
 def exercise_adc(mcu):
@@ -130,7 +148,7 @@ def exercise_adc(mcu):
         for reading in snapshot.readings:
             flag = "" if reading.valid else "  (NaN / unpublished)"
             print(f"  {reading.index:2d} {reading.name:<16s} {reading.value:10.4f}{flag}")
-    _run_section("ADC sample (0x03)", go)
+    return _run_section("ADC sample (0x03)", go)
 
 
 def exercise_power(mcu):
@@ -146,7 +164,7 @@ def exercise_power(mcu):
         print(f"  supply count:     {snapshot.supply_count}")
         for i, state in enumerate(snapshot.supply_states):
             print(f"    supply[{i:2d}] = {state!r}")
-    _run_section("Power (0x01)", go)
+    return _run_section("Power (0x01)", go)
 
 
 def exercise_alarm(mcu):
@@ -159,7 +177,7 @@ def exercise_alarm(mcu):
         print(f"  voltage alarm gen:    0x{snapshot.voltage_alarm_general:02X}")
         print(f"  voltage alarm F1:     0x{snapshot.voltage_alarm_f1:02X}")
         print(f"  voltage alarm F2:     0x{snapshot.voltage_alarm_f2:02X}")
-    _run_section("Alarm (0x02)", go)
+    return _run_section("Alarm (0x02)", go)
 
 
 def exercise_persistent_log(mcu):
@@ -173,7 +191,7 @@ def exercise_persistent_log(mcu):
         entries = mcu.read_persistent_log_entries()
         nonzero = sum(1 for word in entries if word not in (0x00000000, 0xFFFFFFFF))
         print(f"  {nonzero}/{len(entries)} entries look non-empty (raw scan, unfiltered)")
-    _run_section("Persistent log (0x30/0x31, deferred)", go)
+    return _run_section("Persistent log (0x30/0x31, deferred)", go)
 
 
 def send_control(mcu, command_name, assume_yes):
@@ -194,7 +212,7 @@ def send_control(mcu, command_name, assume_yes):
         mcu.send_control(command)
         print(f"Sent {command.name}.")
     except EXPECTED_HARDWARE_ERRORS as exc:
-        print(f"  ⚠ {_format_error(exc)}")
+        _warn(_format_error(exc))
 
 
 _CONFIG_WRITE_WARNING = (
@@ -226,7 +244,7 @@ def set_alarm_temp(mcu, device_name, celsius, assume_yes):
         field = "alarm_temp_" + device.name.lower()
         print(f"{device.name} threshold: {getattr(before, field)} -> {getattr(after, field)} C")
     except EXPECTED_HARDWARE_ERRORS as exc:
-        print(f"  ⚠ {_format_error(exc)}")
+        _warn(_format_error(exc))
 
 
 def set_volt_threshold(mcu, percent, assume_yes):
@@ -239,7 +257,7 @@ def set_volt_threshold(mcu, percent, assume_yes):
         print("Voltage threshold: {} -> {} %".format(
             before.alarm_volt_threshold_percent, after.alarm_volt_threshold_percent))
     except EXPECTED_HARDWARE_ERRORS as exc:
-        print(f"  ⚠ {_format_error(exc)}")
+        _warn(_format_error(exc))
 
 
 def power_cycle(mcu, assume_yes):
@@ -259,7 +277,7 @@ def power_cycle(mcu, assume_yes):
         print("Power inhibited; waiting 15 seconds.")
         time.sleep(15)
     except EXPECTED_HARDWARE_ERRORS as exc:
-        print(f"  ⚠ {_format_error(exc)}")
+        _warn(_format_error(exc))
     finally:
         # A timeout may occur after firmware has accepted ASSERT, so always
         # attempt RELEASE after issuing it, including on Ctrl-C during sleep.
@@ -267,7 +285,7 @@ def power_cycle(mcu, assume_yes):
             mcu.send_control(McuControlCommand.RELEASE_PROGCOM_POWER_INHIBIT)
             print("Released ProgCom power inhibit.")
         except EXPECTED_HARDWARE_ERRORS as exc:
-            print(f"  ⚠ Could not release ProgCom power inhibit: {_format_error(exc)}")
+            _warn(f"Could not release ProgCom power inhibit: {_format_error(exc)}")
 
 
 def main():

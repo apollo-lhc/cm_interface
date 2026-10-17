@@ -22,6 +22,7 @@ Usage:
     lga80d_dump.py F1VCCINT1
     lga80d_dump.py F1VCCINT1 --page 0 --include-unconfirmed
     lga80d_dump.py F1VCCINT1 --snapshot
+    lga80d_dump.py --all --out-dir DIR
 """
 import argparse
 import os
@@ -157,6 +158,10 @@ def decoded(name, raw):
         if exponent & 0x10:
             exponent -= 0x20
         return "%s mode, exponent %d" % ("linear" if mode == 0 else "mode %d" % mode, exponent)
+    if name in ("VOUT_TRIM", "VOUT_CAL_OFFSET"):
+        # Two's-complement mantissa with a fixed exponent of -13 (ZL8802 and
+        # LGA80D text; the LGA80D register table's "L16u" for VOUT_TRIM is wrong).
+        return "%+.3f mV" % (int.from_bytes(raw, "little", signed=True) * 2 ** -13 * 1000)
     if name in LINEAR16:
         return "%.4f V" % decode_linear16u(raw)
     if name in LINEAR11:
@@ -177,58 +182,34 @@ def snapshot_lines(lga, page):
     return lines, True
 
 
-def board_header(reg, args):
-    """Return (header lines, board id or None). Never fatal: old firmware or a
-    missing MCU capability just yields 'unavailable'."""
-    lines = [
-        "LGA80D register dump  %s" % time.strftime("%Y-%m-%d %H:%M:%S"),
-        "  supply:    %s (index 0x%02X)" % (args.device, CORE_CONFIG.lga80d[args.device]),
-        "  uart:      %s" % args.dev_path,
-    ]
+def board_info(reg):
+    """Return (board header lines, board id or None). Never fatal: old firmware
+    or a missing MCU capability just yields 'unavailable'."""
     try:
         info = reg.get_mcu().system_info
     except Exception as exc:
-        lines.append("  board id:  unavailable (%s)" % exc)
-        return lines, None
-    lines.append("  board id:  %d" % info.board_id)
-    lines.append("  hw rev:    %d" % info.hardware_revision)
-    lines.append("  firmware:  %s" % info.git_version)
-    return lines, info.board_id
+        return ["  board id:  unavailable (%s)" % exc], None
+    return [
+        "  board id:  %d" % info.board_id,
+        "  hw rev:    %d" % info.hardware_revision,
+        "  firmware:  %s" % info.git_version,
+    ], info.board_id
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("device", choices=sorted(CORE_CONFIG.lga80d),
-                        help="LGA80D supply name")
-    parser.add_argument("--page", type=int, choices=(0, 1),
-                        help="only this output page (default: both)")
-    parser.add_argument("--include-unconfirmed", action="store_true",
-                        help="also read registers the datasheet doesn't list as supported")
-    parser.add_argument("--snapshot", action="store_true",
-                        help="also capture and print the 32-byte SNAPSHOT per page "
-                             "(not a pure read; needs firmware with the SN device)")
-    parser.add_argument("--dev-path", default="/dev/ttyUL4",
-                        help="UART device (default: %(default)s)")
-    parser.add_argument("--out-dir", metavar="DIR",
-                        help="also write one file per page to DIR, named "
-                             "cm<boardid>_<supply>_<page>.txt (existing files are "
-                             "overwritten; board id is 'unknown' if the MCU can't "
-                             "report it)")
-    args = parser.parse_args()
-
-    reg = Registry(dev_path=args.dev_path)
-    lga = reg.get_lga80d(args.device)
-    header, board_id = board_header(reg, args)
-    registers = load_registers(args.include_unconfirmed)
-    pages = (0, 1) if args.page is None else (args.page,)
-    if args.out_dir:
-        os.makedirs(args.out_dir, exist_ok=True)
+def dump_supply(reg, device, args, board_lines, board_id, registers, pages, echo):
+    """Dump one supply. Prints to stdout if echo; writes files if --out-dir.
+    Returns True if anything failed."""
+    header = [
+        "LGA80D register dump  %s" % time.strftime("%Y-%m-%d %H:%M:%S"),
+        "  supply:    %s (index 0x%02X)" % (device, CORE_CONFIG.lga80d[device]),
+        "  uart:      %s" % args.dev_path,
+    ] + board_lines
+    lga = reg.get_lga80d(device)
     failed = False
     for page in pages:
         lines = [
             "",
-            "== %s  page %d ==" % (args.device, page),
+            "== %s  page %d ==" % (device, page),
             "  %-28s %-4s  %-10s  %s" % ("REGISTER", "CMD", "RAW", "DECODED"),
             "  %s" % ("-" * 66),
         ]
@@ -247,14 +228,59 @@ def main():
             snap_lines, snap_ok = snapshot_lines(lga, page)
             lines.extend(snap_lines)
             failed = failed or not snap_ok
-        print("\n".join((header if page == pages[0] else []) + lines))
+        if echo:
+            print("\n".join((header if page == pages[0] else []) + lines))
         if args.out_dir:
             # Every file carries the header, even for the second page.
+            # "/" in a supply name (3V3/1V8) would be a directory separator.
             path = os.path.join(args.out_dir, "cm%s_%s_%d.txt" % (
-                "unknown" if board_id is None else board_id, args.device, page))
+                "unknown" if board_id is None else board_id,
+                device.replace("/", "-"), page))
             with open(path, "w") as fh:
                 fh.write("\n".join(header + lines) + "\n")
-            print("wrote %s" % path)
+            print("wrote %s%s" % (path, "  (read failures)" if failed else ""))
+    return failed
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("device", nargs="?", choices=sorted(CORE_CONFIG.lga80d),
+                        help="LGA80D supply name")
+    parser.add_argument("--all", action="store_true",
+                        help="dump every LGA80D supply (requires --out-dir; "
+                             "only the 'wrote' lines go to stdout)")
+    parser.add_argument("--page", type=int, choices=(0, 1),
+                        help="only this output page (default: both)")
+    parser.add_argument("--include-unconfirmed", action="store_true",
+                        help="also read registers the datasheet doesn't list as supported")
+    parser.add_argument("--snapshot", action="store_true",
+                        help="also capture and print the 32-byte SNAPSHOT per page "
+                             "(not a pure read; needs firmware with the SN device)")
+    parser.add_argument("--dev-path", default="/dev/ttyUL4",
+                        help="UART device (default: %(default)s)")
+    parser.add_argument("--out-dir", metavar="DIR",
+                        help="also write one file per page to DIR, named "
+                             "cm<boardid>_<supply>_<page>.txt (existing files are "
+                             "overwritten; board id is 'unknown' if the MCU can't "
+                             "report it)")
+    args = parser.parse_args()
+    if args.all == (args.device is not None):
+        parser.error("give either a supply name or --all")
+    if args.all and not args.out_dir:
+        parser.error("--all requires --out-dir")
+
+    reg = Registry(dev_path=args.dev_path)
+    board_lines, board_id = board_info(reg)
+    registers = load_registers(args.include_unconfirmed)
+    pages = (0, 1) if args.page is None else (args.page,)
+    if args.out_dir:
+        os.makedirs(args.out_dir, exist_ok=True)
+    devices = sorted(CORE_CONFIG.lga80d) if args.all else [args.device]
+    failed = False
+    for device in devices:
+        failed = dump_supply(reg, device, args, board_lines, board_id,
+                             registers, pages, echo=not args.all) or failed
     return 1 if failed else 0
 
 

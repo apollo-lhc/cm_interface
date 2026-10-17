@@ -20,8 +20,15 @@ class RegisterAccessError(CMError):
 
 
 class ClockNvmWriteRefused(CMError):
-    """A write would touch an Si5395 NVM control register (burn / bank read)
-    and the caller did not opt in with ``allow_nvm=True``."""
+    """A write would touch a clock chip's NVM control register (burn / bank
+    read) and the caller did not opt in with ``allow_nvm=True``."""
+    pass
+
+
+class ClockIdentityError(CMError):
+    """A clock chip's PN_BASE does not match the part the board revision
+    says should be at that position (wrong EEPROM revision, or firmware
+    built for another board revision)."""
     pass
 
 

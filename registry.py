@@ -1,12 +1,16 @@
 from .uart import UART
-from .device.si5395 import Clock
+from .device.clock import SiClock
+from .device.si5341 import Si5341Clock
+from .device.si5395 import Si5395Clock
 from .device.firefly import Firefly12, Firefly4, FireflyTx, FireflyRx, FireflyTxCern, FireflyRxCern, Firefly
 from .device.lga80d import LGA80D
 from .device.mcu import MCU, PowerFsmState
 from .device.fpga import FPGA
-from .core_config import CORE_CONFIG
+from .core_config import CLOCK_CHIPS, CORE_CONFIG
 from .firefly_presets import FIREfly_PRESETS, BoardSetup
-from typing import Optional, TextIO
+from typing import Dict, Optional, TextIO
+
+CLOCK_CLASSES = {"si5341": Si5341Clock, "si5395": Si5395Clock}
 
 class Registry:
     """Singleton registry that creates a single UART instance and populates
@@ -16,31 +20,39 @@ class Registry:
     load a predefined board configuration (``'tf'`` or ``'it_dtc'``).  When
     ``setup`` is omitted or ``None``, the original generic mapping is used,
     allowing full manual control of the address maps.
+
+    Which chip sits at each clock position depends on the board revision
+    (R0A is an Si5341 on Rev2, an Si5395 on Rev3). ``clocks`` is built on
+    first access from the MCU's HARDWARE_REVISION, or from ``hw_rev`` when
+    given (e.g. for a board whose EEPROM revision was never programmed).
+    Constructing the registry itself sends nothing on the UART.
     """
     _instance = None
 
     def __new__(cls, setup: str = None, debug: Optional[TextIO] = None,
                 dev_path: str = "/dev/ttyUL4",
-                timeout: float = UART.DEFAULT_TIMEOUT):
+                timeout: float = UART.DEFAULT_TIMEOUT,
+                hw_rev: Optional[int] = None):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls._instance._init(setup, debug, dev_path, timeout)
+            cls._instance._init(setup, debug, dev_path, timeout, hw_rev)
         return cls._instance
 
     def _init(self, setup: str = None, debug: Optional[TextIO] = None,
               dev_path: str = "/dev/ttyUL4",
-              timeout: float = UART.DEFAULT_TIMEOUT):
+              timeout: float = UART.DEFAULT_TIMEOUT,
+              hw_rev: Optional[int] = None):
         self.uart = UART(debug=debug, dev_path=dev_path, timeout=timeout)
         self.mcu = MCU(self.uart)
         self.fpgas = {
             "F1": FPGA(self.uart, fpga_number=0, name="F1"),
             "F2": FPGA(self.uart, fpga_number=1, name="F2"),
         }
-        # Instantiate device objects from CORE_CONFIG addresses
-        self.clocks = {}
+        # Instantiate device objects from CORE_CONFIG addresses; clocks are
+        # built lazily because the chip type needs the board revision.
+        self._hw_rev = hw_rev
+        self._clocks = None
         self.lga80d = {}
-        for name, addr in CORE_CONFIG.clocks.items():
-            self.clocks[name] = Clock(self.uart, addr, name)
         for name, addr in CORE_CONFIG.lga80d.items():
             self.lga80d[name] = LGA80D(self.uart, addr, name)
         # Firefly wiring – mutable layout dict
@@ -151,11 +163,47 @@ class Registry:
                 self.fireflies[tx_key] = tx_cls(self.uart, address=base + tx_idx, location=loc)
                 self.fireflies[rx_key] = rx_cls(self.uart, address=base + rx_idx, location=loc)
 
-    # Helper look‑ups ---------------------------------------------------
-    def get_clock(self, name: str) -> Clock:
-        """Return the ``Clock`` instance identified by ``name``.
+    # ---------------------------------------------------------------------
+    # Clocks
+    # ---------------------------------------------------------------------
+    @property
+    def hw_rev(self) -> int:
+        """Board revision used to pick the clock chips: the ``hw_rev``
+        override if given, otherwise the MCU's HARDWARE_REVISION."""
+        if self._hw_rev is None:
+            self._hw_rev = self.mcu.hardware_revision()
+        return self._hw_rev
 
-        Raises ``KeyError`` if the clock does not exist.
+    @property
+    def clocks(self) -> Dict[str, SiClock]:
+        """Clock devices by name, typed for this board revision.
+
+        Raises ``ValueError`` for a revision with no known clock layout. The
+        chips are not checked; ``clock.verify_identity()`` does that.
+        """
+        if self._clocks is None:
+            rev = self.hw_rev
+            try:
+                chips = CLOCK_CHIPS[rev]
+            except KeyError:
+                raise ValueError(
+                    "no clock layout for board revision %d (known: %s); program "
+                    "the MCU EEPROM revision with first_mcu / set_id, or pass "
+                    "hw_rev= to Registry" % (rev, sorted(CLOCK_CHIPS))
+                ) from None
+            self._clocks = {
+                name: CLOCK_CLASSES[chips[name]](self.uart, addr, name)
+                for name, addr in CORE_CONFIG.clocks.items()
+            }
+        return self._clocks
+
+    # Helper look‑ups ---------------------------------------------------
+    def get_clock(self, name: str) -> SiClock:
+        """Return the clock instance identified by ``name``.
+
+        Raises ``KeyError`` for an unknown name. The first call builds
+        ``clocks``, so it can also raise ``ValueError`` (unknown board
+        revision) or a UART/register error from reading the revision.
         """
         return self.clocks[name]
 
