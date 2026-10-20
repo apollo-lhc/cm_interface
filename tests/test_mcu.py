@@ -1,4 +1,5 @@
 import contextlib
+import datetime
 import io
 import math
 import struct
@@ -7,6 +8,7 @@ import unittest
 from cm_interface.device.mcu import (
     ADC_CHANNEL_COUNT,
     MCU,
+    RTC_SET_MIN_SECONDS,
     AdcReg,
     AlarmReg,
     AlarmTaskState,
@@ -28,6 +30,7 @@ from cm_interface.device.mcu import (
     SystemReg,
     TemperatureAlarmBit,
     describe_reset_cause,
+    rtc_local_seconds,
 )
 from cm_interface.errors import (
     CMError,
@@ -50,7 +53,7 @@ class MemoryMCU(MCU):
                     | McuCapability.ALARMS | McuCapability.ADC
                     | McuCapability.PERSISTENT_LOG | McuCapability.CONTROLS
                     | McuCapability.RUNTIME | McuCapability.CONFIG
-                    | McuCapability.CONFIG_WRITE)
+                    | McuCapability.CONFIG_WRITE | McuCapability.RTC_WRITE)
         self.put(McuPage.SYSTEM, SystemReg.CAPABILITIES,
                  int(all_caps).to_bytes(4, "little"))
 
@@ -481,6 +484,56 @@ class McuConfigWriteTest(unittest.TestCase):
         # MN-3 regression: wire and CLI conversions agree for every clamped value.
         for cpct in range(100, 1001):
             self.assertEqual(int(round((cpct / 100.0) * 100)), cpct)
+
+
+class McuRtcWriteTest(unittest.TestCase):
+    def _rtc_write(self, seconds):
+        return (int(McuPage.CONTROL), int(ControlReg.RTC_SET_LOCAL),
+                seconds.to_bytes(4, "little"))
+
+    def test_set_rtc_writes_local_seconds(self):
+        # expected values hand-computed from day counts, not via calendar.timegm
+        cases = (
+            (datetime.datetime(2026, 1, 1, 0, 0, 0), 1767225600),
+            (datetime.datetime(2028, 2, 29, 0, 0, 0), 1835395200),
+            (datetime.datetime(2026, 12, 31, 23, 59, 59), 1798761599),
+        )
+        for when, expected in cases:
+            mcu = MemoryMCU()
+            self.assertEqual(mcu.set_rtc(when), expected)
+            self.assertEqual(mcu.writes, [self._rtc_write(expected)])
+
+    def test_set_rtc_drops_microseconds(self):
+        mcu = MemoryMCU()
+        mcu.set_rtc(datetime.datetime(2026, 1, 1, 0, 0, 0, 999999))
+        self.assertEqual(mcu.writes, [self._rtc_write(1767225600)])
+
+    def test_set_rtc_bound_matches_constant(self):
+        self.assertEqual(
+            rtc_local_seconds(datetime.datetime(2026, 1, 1)), RTC_SET_MIN_SECONDS)
+
+    def test_set_rtc_rejects_before_2026(self):
+        for bad in (datetime.datetime(2025, 12, 31, 23, 59, 59),
+                    datetime.datetime(1970, 1, 1),
+                    datetime.datetime(2106, 2, 8)):
+            mcu = MemoryMCU()
+            with self.assertRaises(ValueError):
+                mcu.set_rtc(bad)
+            self.assertEqual(mcu.writes, [])
+
+    def test_aware_datetime_converts_to_host_local(self):
+        aware = datetime.datetime(2026, 6, 1, 12, 0, 0, tzinfo=datetime.timezone.utc)
+        local = datetime.datetime.fromtimestamp(aware.timestamp())
+        self.assertEqual(rtc_local_seconds(aware), rtc_local_seconds(local))
+
+    def test_set_rtc_gated_by_separate_capability(self):
+        mcu = MemoryMCU()
+        _put_u32(mcu, McuPage.SYSTEM, SystemReg.CAPABILITIES,
+                 McuCapability.SYSTEM | McuCapability.CONTROLS)
+        mcu.send_control(McuControlCommand.CLEAR_POWER_FAULT)  # commands still work
+        with self.assertRaises(McuCapabilityUnavailable):
+            mcu.set_rtc(datetime.datetime(2026, 6, 1))
+        self.assertEqual(len(mcu.writes), 1)
 
 
 class McuCapabilityGatingTest(unittest.TestCase):

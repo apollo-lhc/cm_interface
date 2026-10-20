@@ -194,6 +194,10 @@ def test_config_write_clamps(defines):
     assert _resolve("CFG_VOLT_MAX_CPCT", defines) == mcu.ALARM_VOLT_CPCT_MAX
 
 
+def test_rtc_set_lower_bound(defines):
+    assert _resolve("RTC_SET_MIN_SECONDS", defines) == mcu.RTC_SET_MIN_SECONDS
+
+
 def test_runtime_page(defines):
     _check(defines, [
         ("RT_OFF_HEAP_FREE", mcu.RuntimeReg.HEAP_FREE),
@@ -250,6 +254,7 @@ def test_adc_and_control_pages(defines):
     _check(defines, [
         ("ADC_PAGE_VALUES_OFF", mcu.AdcReg.VALUES),
         ("CTRL_OFF_COMMAND", mcu.ControlReg.COMMAND),
+        ("CTRL_OFF_RTC_SET_LOCAL", mcu.ControlReg.RTC_SET_LOCAL),
         ("CTRL_CMD_ASSERT_PROGCOM_POWER_INHIBIT",
          mcu.McuControlCommand.ASSERT_PROGCOM_POWER_INHIBIT),
         ("CTRL_CMD_RELEASE_PROGCOM_POWER_INHIBIT",
@@ -274,6 +279,7 @@ def test_capability_and_health_bits(defines):
         ("MCU_CAP_CONFIG", mcu.McuCapability.CONFIG),
         ("MCU_CAP_RUNTIME", mcu.McuCapability.RUNTIME),
         ("MCU_CAP_CONFIG_WRITE", mcu.McuCapability.CONFIG_WRITE),
+        ("MCU_CAP_RTC_WRITE", mcu.McuCapability.RTC_WRITE),
         ("MCU_HEALTH_POWER_FAULT", mcu.McuHealth.POWER_FAULT),
         ("MCU_HEALTH_TEMPERATURE_ALARM", mcu.McuHealth.TEMPERATURE_ALARM),
         ("MCU_HEALTH_VOLTAGE_ALARM", mcu.McuHealth.VOLTAGE_ALARM),
