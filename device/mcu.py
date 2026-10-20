@@ -16,6 +16,7 @@ from ..errors import (
     McuCoherencyError,
     McuMagicError,
     McuMapVersionError,
+    McuProtocolError,
 )
 from .base import Device
 
@@ -256,6 +257,7 @@ class PowerFsmState(IntEnum):
     POWER_L5ON = 8
     POWER_L6ON = 9
     POWER_ON = 10
+    POWER_CONFIG = 11
 
 
 class PowerFlags(IntFlag):
@@ -593,7 +595,14 @@ class MCU(Device):
             generation = self._read_u32(page, PowerReg.GENERATION)
             if generation & 1:
                 continue
-            fsm_state = PowerFsmState(self._read_u8(page, PowerReg.FSM_STATE))
+            raw_fsm_state = self._read_u8(page, PowerReg.FSM_STATE)
+            try:
+                fsm_state = PowerFsmState(raw_fsm_state)
+            except ValueError:
+                raise McuProtocolError(
+                    "unknown MCU power FSM state %d; firmware has a state that "
+                    "PowerFsmState does not -- update the enum" % raw_fsm_state
+                ) from None
             flags = PowerFlags(self._read_u8(page, PowerReg.FLAGS))
             live_pg_mask = self._read_u32(page, PowerReg.LIVE_PG_MASK)
             expected_pg_mask = self._read_u32(page, PowerReg.EXPECTED_PG_MASK)

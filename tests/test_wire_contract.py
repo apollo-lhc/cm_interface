@@ -173,6 +173,19 @@ def test_alarm_temp_device_enum_matches_firmware():
         assert int(mcu.AlarmTempDevice[name]) == index
 
 
+def test_power_fsm_state_enum_matches_firmware():
+    """PWR_OFF_STATE carries enum power_system_state, built from an X-macro list."""
+    with open(TASKS_H) as handle:
+        text = _strip_comments(handle.read())
+    text = re.sub(r"//.*", "", text)
+    match = re.search(r"#define\s+X_MACRO_PS_SYSTEM_STATES((?:[^\n]*\\\n)*[^\n]*)", text)
+    assert match, "X_MACRO_PS_SYSTEM_STATES not found in Tasks.h"
+    names = re.findall(r"X\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)", match.group(1))
+    assert names == [member.name for member in mcu.PowerFsmState]
+    for index, name in enumerate(names):
+        assert int(mcu.PowerFsmState[name]) == index
+
+
 def test_config_write_clamps(defines):
     """Client and firmware must refuse the same values (the clamp is a safety control)."""
     assert _resolve("CFG_TEMP_MIN_C", defines) == mcu.ALARM_TEMP_MIN_C
