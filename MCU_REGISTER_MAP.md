@@ -23,7 +23,7 @@ Read-only.
 | --- | ---: | --- |
 | `0x00` | 4 | ASCII magic `CMCU` |
 | `0x04` | 1 | map major version (`1`) |
-| `0x05` | 1 | map minor version (`3`) |
+| `0x05` | 1 | map minor version (`4`) |
 | `0x06` | 1 | hardware revision |
 | `0x07` | 1 | ADC channel count (`21`) |
 | `0x08` | 4 | capability bitmap |
@@ -62,6 +62,7 @@ Capability bits (bitmap at `0x08`):
 | 7 | `CONFIG` | yes (page `0x05` readable; map minor ≥ 2) |
 | 8 | `RUNTIME` | yes |
 | 9 | `CONFIG_WRITE` | yes (page `0x05` writable; map minor ≥ 3) |
+| 10 | `RTC_WRITE` | yes (page `0x7f` offset `0x04`; map minor ≥ 4) |
 
 A capability bit is set only once its page is fully implemented; a client
 must not assume a page works just because its offsets are frozen here.
@@ -311,7 +312,13 @@ count is published — scan all 64 and filter erased/empty sentinels.
 
 ## Page `0x7f` — Control — **implemented**
 
-Write-only. One command byte at offset `0x00`.
+Write-only. One command byte at offset `0x00`, and from map minor 4 the RTC
+set word at offset `0x04`.
+
+| Offset | Size | Field |
+| --- | ---: | --- |
+| `0x00` | 1 | command code, table below |
+| `0x04` | 4 | RTC set: local wall-clock seconds since 1970-01-01 00:00:00 (needs `RTC_WRITE`, bit 10) |
 
 | Code | Command |
 | ---: | --- |
@@ -348,6 +355,20 @@ timeout): a full queue is real backpressure and should surface to the
 remote client immediately as `MCU_REG_QUEUE_FULL`, not stall the ProgCom
 UART link waiting for space.
 
+**RTC set (`0x04`).** The RTC carries no time zone. The value is the setter's
+local wall-clock time expressed as seconds since 1970-01-01 00:00:00 of that
+clock, so it is *not* Unix time; `cm_interface` (`MCU.set_rtc`) computes it
+with `calendar.timegm` on the host's local time. A DST change shifts the RTC
+only when someone sets it again. Values below `1767225600` (2026-01-01
+00:00:00) return `invalid MCU value`. The write is synchronous, with no queue,
+and is what the Runtime page's RTC fields read back. On map minor 3 firmware
+the offset returns `invalid MCU address`; check bit 10 first.
+
+The RTC set is not serialised against the CLI `time set` command. Each loads
+the calendar with two register writes (time, then date), so two concurrent
+setters could leave one caller's time with the other's date. No lock is taken; do not set the clock from both
+interfaces at once.
+
 Each alarm-clear command targets exactly one alarm task's queue — there is
 no combined "clear all alarms" command, so no command ever needs atomic
 delivery across more than one queue.
@@ -361,7 +382,7 @@ delivery across more than one queue.
 | address not inside a declared field | `invalid MCU address` |
 | read/write crosses the end of a field, or length outside 1-4 | `invalid MCU read span` |
 | write to a field with a length other than its width (pages `0x05`, `0x7f`) | `invalid MCU write span` |
-| valid address and length, value outside the field's clamp (page `0x05`) | `invalid MCU value` |
+| valid address and length, value outside the field's clamp (page `0x05`, page `0x7f` RTC set) | `invalid MCU value` |
 | write to a read-only page | `MCU register is read only` |
 | read from a write-only page | `MCU register is write only` |
 | valid request, queue-owned op not yet accepted | `MCU queue full` |

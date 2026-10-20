@@ -5,6 +5,8 @@ file is the hand-maintained source of truth shared with the firmware's
 ``MCU_Reg.h`` — keep this module in sync with it, not the other way around.
 """
 
+import calendar
+import datetime
 import math
 import struct
 from enum import IntEnum, IntFlag
@@ -127,6 +129,22 @@ ALARM_TEMP_MAX_C = 100
 ALARM_VOLT_CPCT_MIN = 100     # 1 %
 ALARM_VOLT_CPCT_MAX = 1000    # 10 %
 
+# Lowest RTC set value the firmware accepts (``RTC_SET_MIN_SECONDS``):
+# 2026-01-01 00:00:00 local wall-clock time, in the units of rtc_local_seconds().
+RTC_SET_MIN_SECONDS = 1767225600
+
+
+def rtc_local_seconds(when: datetime.datetime) -> int:
+    """Wire value for the RTC set field: seconds since 1970-01-01 00:00:00 of
+    ``when``'s wall clock. Not Unix time: the RTC carries no time zone.
+
+    A naive datetime is taken as wall-clock time as given; an aware one is
+    first converted to the host's local zone. Sub-second precision is dropped.
+    """
+    if when.tzinfo is not None:
+        when = when.astimezone().replace(tzinfo=None)
+    return calendar.timegm(when.timetuple())
+
 
 class AlarmTempDevice(IntEnum):
     """Matches the firmware's ``enum device`` (``Tasks.h``): FF, DCDC, TM4C, FPGA."""
@@ -159,6 +177,7 @@ class RuntimeReg(IntEnum):
 
 class ControlReg(IntEnum):
     COMMAND = 0x00                # uint8, write-only
+    RTC_SET_LOCAL = 0x04          # uint32, write-only, see rtc_local_seconds()
 
 
 class McuControlCommand(IntEnum):
@@ -180,6 +199,7 @@ class McuCapability(IntFlag):
     CONFIG = 1 << 7
     RUNTIME = 1 << 8
     CONFIG_WRITE = 1 << 9
+    RTC_WRITE = 1 << 10
 
 
 class McuBuildType(IntEnum):
@@ -835,3 +855,30 @@ class MCU(Device):
         page = McuPage.CONTROL
         self._require_page(page, check_capability)
         self.write_reg(self._reg(page, ControlReg.COMMAND), bytes([int(command)]))
+
+    def set_rtc(self, when: Optional[datetime.datetime] = None,
+                check_capability: bool = True) -> int:
+        """Set the MCU RTC to a local wall-clock time; returns the value sent.
+
+        ``when`` defaults to the host's local time now; see
+        :func:`rtc_local_seconds` for naive vs. aware datetimes. The RTC has
+        no time zone, so a DST change shifts it only when it is set again.
+        Values before 2026-01-01 raise ``ValueError`` and send nothing.
+
+        Not serialised against the CLI ``time set``: two concurrent setters
+        can leave one's time with the other's date.
+        """
+        if when is None:
+            when = datetime.datetime.now()
+        seconds = rtc_local_seconds(when)
+        if not RTC_SET_MIN_SECONDS <= seconds <= 0xFFFFFFFF:
+            raise ValueError(
+                "RTC time {} outside 2026-01-01..2106-02-07".format(when.isoformat()))
+        page = McuPage.CONTROL
+        self._require_page(page, check_capability)
+        if check_capability and not self.capabilities() & McuCapability.RTC_WRITE:
+            raise McuCapabilityUnavailable(
+                "firmware does not advertise {}".format(McuCapability.RTC_WRITE.name)
+            )
+        self.write_reg(self._reg(page, ControlReg.RTC_SET_LOCAL), struct.pack("<I", seconds))
+        return seconds

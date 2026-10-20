@@ -133,6 +133,10 @@ rt = mcu.read_runtime()                # page 0x06, map minor >= 1 firmware
 print(rt.heap_free_bytes, rt.system_stack_untouched_words, rt.fpga_done)
 print(rt.rtc.isoformat())              # "unset" when the RTC is not valid
 
+# Needs map minor >= 4 (RTC_WRITE). Sets host local wall-clock time; the RTC
+# has no time zone. Refuses times before 2026-01-01. CLI: mcu_set_rtc.py
+mcu.set_rtc()
+
 mcu.send_control(McuControlCommand.CLEAR_ALARM_LATCHES)
 ```
 
