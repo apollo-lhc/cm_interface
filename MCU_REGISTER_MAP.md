@@ -89,7 +89,7 @@ different situation from Alarm/ADC, where dropping the counter was safe.
 | Offset | Size | Field |
 | --- | ---: | --- |
 | `0x00` | 4 | generation counter |
-| `0x04` | 1 | power FSM state (0-10, see state list below) |
+| `0x04` | 1 | power FSM state (0-11, see state list below) |
 | `0x05` | 1 | flags bitmap (see below) |
 | `0x06` | 2 | reserved |
 | `0x08` | 4 | live power-good mask (freshest reading each cycle) |
@@ -100,14 +100,18 @@ different situation from Alarm/ADC, where dropping the counter was safe.
 | `0x19` | 3 | reserved |
 | `0x1c` | 12 | per-supply state, one byte each, index = PG-pin index (state values below) |
 
-Power FSM states (offset `0x04`), in order 0-10:
+Power FSM states (offset `0x04`), in order 0-11:
 
 ```text
 0 POWER_FAILURE   4 POWER_L1ON   8  POWER_L5ON
 1 POWER_INIT      5 POWER_L2ON   9  POWER_L6ON
 2 POWER_DOWN      6 POWER_L3ON   10 POWER_ON
-3 POWER_OFF       7 POWER_L4ON
+3 POWER_OFF       7 POWER_L4ON   11 POWER_CONFIG
 ```
+
+`POWER_CONFIG` runs `LGA80D_init` with the supplies off on every power-up
+(`POWER_OFF` → `POWER_CONFIG` → `POWER_L1ON`); an init failure goes to
+`POWER_FAILURE`.
 
 Flags bitmap (offset `0x05`):
 
