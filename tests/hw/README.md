@@ -47,7 +47,7 @@ And one more that describes board *population*, not connectivity:
   transaction with `e Firefly not enabled` regardless of register
   addressing, which would otherwise show up as spurious failures unrelated
   to the F03/F04/F05 fixes those tests check. `test_hw_registry.py`,
-  `test_hw_si5395.py`, and `test_hw_lga80d.py` are unaffected by this flag
+  `test_hw_clock.py`, and `test_hw_lga80d.py` are unaffected by this flag
   since they don't depend on FireFly modules being present.
 
 ## Running it
@@ -85,9 +85,10 @@ always hold.
   UART address matches the pinned `wire_index` map in `firefly_presets.py`.
   Needs a `Registry` object but not real device responses, so it runs even
   if the serial port is unavailable.
-- **`test_hw_si5395.py`** (S01) -- `Clock.get_device_id()` must read back
-  `0x5395` for every configured clock, a strong self-verifying check that
-  the register addressing/framing is right at all. `is_ready()` is
+- **`test_hw_clock.py`** (S01) -- `get_device_id()` must read back the
+  part the board revision implies (`0x5395`, or `0x5341` for R0A on Rev2)
+  for every configured clock, a strong self-verifying check that the
+  register addressing/framing and the board revision are right. `is_ready()` is
   asserted to return a `bool` (the strict `== 0x0F` fix from S01); actual
   readiness/lock state is printed, not hard-asserted, since it depends on
   board power-up and input-clock wiring this suite doesn't control.

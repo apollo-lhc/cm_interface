@@ -59,5 +59,13 @@ class SnapshotLinesTest(unittest.TestCase):
         self.assertIn("invalid device type", "\n".join(lines))
 
 
+class VoutTrimDecodeTest(unittest.TestCase):
+    def test_signed_millivolts(self):
+        self.assertEqual(lga80d_dump.decoded("VOUT_TRIM", b"\xf9\xff"), "-0.854 mV")
+        self.assertEqual(lga80d_dump.decoded("VOUT_TRIM", b"\x02\x00"), "+0.244 mV")
+        self.assertEqual(lga80d_dump.decoded("VOUT_TRIM", b"\x00\x00"), "+0.000 mV")
+        self.assertEqual(lga80d_dump.decoded("VOUT_CAL_OFFSET", b"\xf9\xff"), "-0.854 mV")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -88,7 +88,9 @@ Complete JSON register maps are in `registers/`:
 ## Board Configurations
 
 The suggestion is to have representation of all the devices. There are 
-five clocks, R0A, R0B, R1A, R1B, R1C. They are all Si5395. Data sheet in the
+five clocks, R0A, R0B, R1A, R1B, R1C. They are all Si5395 on Rev3; on Rev2,
+R0A is an Si5341. `Registry.clocks` picks the class from the MCU's
+HARDWARE_REVISION (`core_config.CLOCK_CHIPS`). Data sheet in the
 directory. There are 20 Samtec fireflies. They are available Using a naming
 convention as below
 
@@ -196,14 +198,14 @@ from cm_interface.device.si5395 import Si5395Reg
 reg = Registry(setup='tf')
 
 # Access clock - Method 1: Symbolic register names (recommended)
-clock = reg.get_clock('R0A')
+clock = reg.get_clock('R0B')  # Si5395 on every revision; R0A is an Si5341 on Rev2
 status = clock.read_reg(Si5395Reg.LOL_HOLD_STATUS)  # Clear, self-documenting
 
 # Access clock - Method 2: Convenience properties
 is_locked = clock.is_locked()          # Check PLL lock status
 mode = clock.mode                      # Get current mode
 health = clock.health                  # Structured live clock status
-device_id = clock.get_device_id()      # Should return 0x5395
+device_id = clock.get_device_id()      # 0x5395 (0x5341 for R0A on Rev2)
 
 # Access clock - Method 3: Status checks
 if clock.has_loss_of_signal(0):        # Check LOS on IN0

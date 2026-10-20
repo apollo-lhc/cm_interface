@@ -240,6 +240,7 @@ for name, clock in reg.clocks.items():
 
 ```python
 # Method 1: Symbolic register names (RECOMMENDED)
+# Si5395 register; on Rev2, R0A is an Si5341 (use Si5341Reg there)
 status = clock.read_reg(Si5395Reg.LOL_HOLD_STATUS)
 mode = clock.mode
 
@@ -418,7 +419,7 @@ The same operations are available from the hardware exercise script:
 ```python
 # ✓ RECOMMENDED: Symbolic names
 from cm_interface.device.si5395 import Si5395Reg
-status = clock.read_reg(Si5395Reg.LOL_HOLD_STATUS)
+status = clock.read_reg(Si5395Reg.LOL_HOLD_STATUS)  # Si5395 only (not R0A on Rev2)
 
 # ✓ RECOMMENDED: Convenience methods
 if clock.is_locked():
@@ -537,7 +538,7 @@ example_disable_cdr_all_fireflies()
 | Method | Description |
 |--------|-------------|
 | `Registry(setup='tf')` | Create registry with board preset ('tf', 'it_dtc', or None) |
-| `get_clock(name)` | Get Si5395 clock by name (e.g., 'R0A') |
+| `get_clock(name)` | Get clock by name (e.g., 'R0A'); Si5341 or Si5395 by board revision |
 | `get_firefly(loc)` | Get a configured Firefly by location; raises `KeyError` when absent |
 | `get_lga80d(name)` | Get LGA80D converter by supply name |
 

@@ -17,6 +17,7 @@ cm_interface/
 ├─ registry.py            # Global Registry for board devices
 ├─ examples.py            # Worked examples (see EXAMPLES.md)
 ├─ exercise_mcu.py        # Exercise the MCU pages; writes/control prompt unless --yes
+├─ mcu_dump.py            # Read-only MCU page dump (--out-dir)
 ├─ lga80d_dump.py         # LGA80D register dump script (--snapshot adds the SNAPSHOT read)
 ├─ MCU_REGISTER_MAP.md    # MCU wire contract (with MCU_Reg.h)
 ├─ TODO.md                # Open, deferred and dropped cm_interface work
@@ -27,7 +28,9 @@ cm_interface/
 ├─ device/
 │  ├─ __init__.py
 │  ├─ base.py             # Abstract Device class
-│  ├─ si5395.py           # Clock implementation
+│  ├─ clock.py            # Shared clock base (SiClock, ClockHealth)
+│  ├─ si5395.py           # Si5395 clock (all positions on Rev3)
+│  ├─ si5341.py           # Si5341 clock (R0A on Rev2)
 │  ├─ firefly.py          # Tx, Rx, and 4‑channel firefly classes
 │  ├─ lga80d.py           # LGA80D DC-DC converter implementation
 │  ├─ mcu.py              # Command-module MCU register interface

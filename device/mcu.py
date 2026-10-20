@@ -483,6 +483,15 @@ class MCU(Device):
             )
         return self._capabilities
 
+    def hardware_revision(self) -> int:
+        """Read the board revision.
+
+        The firmware takes this from the board EEPROM (``first_mcu`` /
+        ``set_id``), not from the REV it was compiled for, so an unprogrammed
+        EEPROM gives a meaningless value.
+        """
+        return self._read_u8(McuPage.SYSTEM, SystemReg.HARDWARE_REVISION)
+
     def _require_page(self, page: McuPage, check: bool = True) -> None:
         """Refuse to touch a page the firmware does not advertise.
 
