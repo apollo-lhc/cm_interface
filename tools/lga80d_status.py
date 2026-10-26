@@ -10,10 +10,12 @@ Bit meanings are from LGA80D_40A_dual_AppNote.pdf, "STATUS_*" command pages.
 Usage:
     cm-lga80d-status F1VCCINT1        # one device, both output pages
     cm-lga80d-status --all            # every LGA80D on the board
+    cm-lga80d-status --all --out-dir DIR
 """
 import argparse
 import os
 import sys
+import time
 
 # Permit direct execution from a checkout (./tools/NAME.py) without the RPM.
 if not __package__:
@@ -23,7 +25,9 @@ if not __package__:
         sys.path.insert(0, _package_parent)
 
 from cm_interface.core_config import CORE_CONFIG
-from cm_interface.registry import Registry
+from cm_interface.tools._common import (add_common_args, add_device_args, add_out_dir_arg,
+                                       board_info, make_registry, out_path,
+                                       selected_devices, write_lines)
 
 # bit number -> meaning. Bits missing from a table are "Not Used" in the
 # datasheet; if one is set it is printed as undocumented.
@@ -91,39 +95,51 @@ REGISTERS = [
 ]
 
 
-def print_status(name, page, status):
-    print("%s  page %d  has_faults=%s" % (name, page, status.has_faults))
+def status_lines(name, page, status):
+    lines = ["%s  page %d  has_faults=%s" % (name, page, status.has_faults)]
     for title, attr, bits, width in REGISTERS:
         value = getattr(status, attr)
-        print("  %-27s = 0x%0*X" % (title, width // 4, value))
+        lines.append("  %-27s = 0x%0*X" % (title, width // 4, value))
         for bit in range(width - 1, -1, -1):
             if value & (1 << bit):
-                print("      bit %2d: %s" % (bit, bits.get(bit, "undocumented bit")))
+                lines.append("      bit %2d: %s" % (bit, bits.get(bit, "undocumented bit")))
+    return lines
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    which = parser.add_mutually_exclusive_group(required=True)
-    which.add_argument("device", nargs="?", choices=sorted(CORE_CONFIG.lga80d),
-                       help="LGA80D supply name")
-    which.add_argument("--all", action="store_true",
-                       help="read every LGA80D on the board")
-    parser.add_argument("--dev-path", default="/dev/ttyUL4",
-                        help="UART device (default: %(default)s)")
+    add_device_args(parser, "LGA80D supply", sorted(CORE_CONFIG.lga80d))
+    add_out_dir_arg(parser, "one file per supply, cm<boardid>_<supply>_status.txt,")
+    add_common_args(parser)
     args = parser.parse_args()
+    names = selected_devices(parser, args, sorted(CORE_CONFIG.lga80d))
 
-    names = sorted(CORE_CONFIG.lga80d) if args.all else [args.device]
-    reg = Registry(dev_path=args.dev_path)
+    reg = make_registry(args)
+    board_lines, board_id = board_info(reg)
+    if args.out_dir:
+        os.makedirs(args.out_dir, exist_ok=True)
     failed = False
     for name in names:
         lga = reg.get_lga80d(name)
+        lines = [
+            "LGA80D status  %s" % time.strftime("%Y-%m-%d %H:%M:%S"),
+            "  supply:    %s (index 0x%02X)" % (name, CORE_CONFIG.lga80d[name]),
+            "  uart:      %s" % args.dev_path,
+        ] + board_lines
+        supply_failed = False
         for page in (0, 1):
             try:
-                print_status(name, page, lga.read_status(page))
+                lines += status_lines(name, page, lga.read_status(page))
             except Exception as exc:  # keep going so one bad device doesn't hide the rest
-                failed = True
-                print("%s  page %d  READ FAILED: %s" % (name, page, exc))
+                supply_failed = True
+                lines.append("%s  page %d  READ FAILED: %s" % (name, page, exc))
+        failed = failed or supply_failed
+        if args.out_dir:
+            write_lines(out_path(args.out_dir, board_id, name + "_status"), lines,
+                        supply_failed)
+        else:
+            print("\n".join(lines))
     return 1 if failed else 0
 
 

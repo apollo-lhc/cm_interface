@@ -7,7 +7,7 @@ import unittest
 
 from cm_interface.tools import mcu_dump
 from cm_interface.device.mcu import MCU, McuCapability, McuPage, SystemReg
-from cm_interface.tools.lga80d_dump import board_info
+from cm_interface.tools._common import board_info
 
 ALL_CAPS = (McuCapability.SYSTEM | McuCapability.POWER | McuCapability.ALARMS
             | McuCapability.ADC | McuCapability.PERSISTENT_LOG
@@ -78,14 +78,14 @@ class DumpMcuTest(unittest.TestCase):
                 written = fh.read()
 
         self.assertFalse(failed)
-        self.assertIn("board id:  3019", text)
+        self.assertIn("board id:  3019", written)
         for title in ("System (0x00)", "Power (0x01)", "Alarm (0x02)",
                       "Config (0x05)", "Runtime (0x06)", "ADC sample (0x03)",
                       "Persistent log"):
             self.assertIn(title, written)
         self.assertNotIn("⚠", written)
-        # stdout is the file contents plus the 'wrote' line
-        self.assertEqual(text, written + "wrote %s\n" % path)
+        # with --out-dir, stdout is only the 'wrote' line
+        self.assertEqual(text, "wrote %s\n" % path)
 
     def test_read_only(self):
         mcu = MemoryMCU()
@@ -102,11 +102,12 @@ class DumpMcuTest(unittest.TestCase):
         mcu = FailingMCU()
         with tempfile.TemporaryDirectory() as out_dir:
             failed, text = _dump(mcu, out_dir)
-            self.assertTrue(os.path.exists(os.path.join(out_dir, "cmunknown_mcu.txt")))
+            with open(os.path.join(out_dir, "cmunknown_mcu.txt"), encoding="utf-8") as fh:
+                written = fh.read()
 
         self.assertTrue(failed)
-        self.assertIn("board id:  unavailable", text)
-        self.assertIn("could not open port", text)
+        self.assertIn("board id:  unavailable", written)
+        self.assertIn("could not open port", written)
         self.assertIn("(read failures)", text)
         self.assertEqual(mcu.writes, [])
 

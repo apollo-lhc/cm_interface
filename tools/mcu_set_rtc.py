@@ -28,7 +28,7 @@ if not __package__:
 
 from cm_interface.device.mcu import McuCapability, rtc_local_seconds
 from cm_interface.errors import McuCapabilityUnavailable
-from cm_interface.registry import Registry
+from cm_interface.tools._common import add_common_args, make_registry
 
 
 def rtc_datetime(rtc):
@@ -42,16 +42,15 @@ def rtc_datetime(rtc):
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--dev-path", default="/dev/ttyUL4",
-                        help="UART device (default: %(default)s)")
     parser.add_argument("--dry-run", action="store_true",
                         help="read the RTC and show what would be written; write nothing")
     parser.add_argument("--tolerance", type=float, default=2.0, metavar="S",
                         help="maximum read-back offset from the host clock, seconds "
                              "(default: %(default)s)")
+    add_common_args(parser)
     args = parser.parse_args()
 
-    mcu = Registry(dev_path=args.dev_path).get_mcu()
+    mcu = make_registry(args).get_mcu()
     print("MCU RTC before: %s" % mcu.read_runtime().rtc.isoformat())
 
     now = datetime.datetime.now().replace(microsecond=0)

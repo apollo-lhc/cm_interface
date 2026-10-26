@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Print a status summary of every populated Firefly on the board.
+"""Print a status summary of the populated Fireflies (all, or the locations named).
 
 "Populated" is the MCU's Firefly present mask (system page 0x58, built from
 the *_PRESENT pins at MCU boot). A present module that is not also in the
@@ -15,11 +15,14 @@ no new side effect; it also means a latched bit shown here is usually a
 condition that is still present (it re-latches at once), not history.
 
 Usage:
-    cm-ff-status [--dev-path /dev/ttyUL4]
+    cm-ff-status --all
+    cm-ff-status F1_1 F2_6
+    cm-ff-status --all --out-dir DIR
 """
 import argparse
 import os
 import sys
+import time
 
 # Permit direct execution from a checkout (./tools/NAME.py) without the RPM.
 if not __package__:
@@ -29,7 +32,9 @@ if not __package__:
         sys.path.insert(0, _package_parent)
 
 from cm_interface.device.firefly import Firefly4, FireflyReg, FireflyRx, FireflyTx
-from cm_interface.registry import Registry
+from cm_interface.tools._common import (add_common_args, add_device_args, add_out_dir_arg,
+                                       make_registry, out_path, selected_devices,
+                                       write_lines)
 
 # Firmware ff_moni2c_addrs[] (cm_mcu LocalTasks.c) by board revision; the
 # device number is the index. Kind: "Tx"/"Rx" = x12 half, "4" = x4 XCVR.
@@ -48,6 +53,16 @@ SLOTS = {
         ("F2_4 Tx", "Tx"), ("F2_4 Rx", "Rx"), ("F2_5", "4"), ("F2_6", "4")),
 }
 CLASSES = {"Tx": FireflyTx, "Rx": FireflyRx, "4": Firefly4}
+
+
+def location(slot_name):
+    """'F1_1 Tx' -> 'F1_1': a location selects both halves of an x12 pair."""
+    return slot_name.split()[0]
+
+
+# Every location on any revision, for --help and name checking before the MCU
+# says which revision this board is.
+LOCATIONS = sorted({location(name) for slots in SLOTS.values() for name, _ in slots})
 
 # x12 status summary byte 6 (Tables 12/34; CERN-B Tables 24/39). Bit 0
 # (init complete) clears on read and is not an alarm, so it is not listed.
@@ -172,11 +187,13 @@ def read_x4(ff):
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--dev-path", default="/dev/ttyUL4",
-                        help="UART device (default: %(default)s)")
+    add_device_args(parser, "Firefly location", LOCATIONS)
+    add_out_dir_arg(parser, "the table, cm<boardid>_ff_status.txt,")
+    add_common_args(parser)
     args = parser.parse_args()
+    wanted = selected_devices(parser, args, LOCATIONS)
 
-    reg = Registry(dev_path=args.dev_path)
+    reg = make_registry(args)
     info = reg.mcu.system_info
     if info.ff_present_mask is None:
         print("MCU map minor %d has no Firefly masks (needs >= 1)" % info.map_minor)
@@ -188,19 +205,31 @@ def main():
 
     present, user = info.ff_present_mask, info.ff_user_mask
     populated = [n for n in range(len(slots)) if present & (1 << n)]
-    print("board %d  rev %d  fw %s" % (info.board_id, info.hardware_revision,
-                                       info.git_version))
-    print("present mask 0x%05X  user mask 0x%05X  populated %d of %d"
-          % (present, user, len(populated), len(slots)))
-    print("%2s  %-8s %-6s %-16s %-10s %5s %6s  %s"
-          % ("#", "slot", "type", "part", "serial", "T(C)", "Vcc(V)", "status"))
+    lines = [
+        "Firefly status  %s" % time.strftime("%Y-%m-%d %H:%M:%S"),
+        "board %d  rev %d  fw %s" % (info.board_id, info.hardware_revision,
+                                     info.git_version),
+        "present mask 0x%05X  user mask 0x%05X  populated %d of %d"
+        % (present, user, len(populated), len(slots)),
+    ]
+    rev_locations = [location(name) for name, _ in slots]
+    for loc in wanted:
+        if loc not in rev_locations:
+            lines.append("%s: no such location on board revision %d"
+                         % (loc, info.hardware_revision))
+        elif not any(location(slots[n][0]) == loc for n in populated):
+            lines.append("%s: not populated" % loc)
+    lines.append("%2s  %-8s %-6s %-16s %-10s %5s %6s  %s"
+                 % ("#", "slot", "type", "part", "serial", "T(C)", "Vcc(V)", "status"))
 
     failed = False
     for n in populated:
         name, kind = slots[n]
+        if location(name) not in wanted:
+            continue
         if not user & (1 << n):
-            print("%2d  %-8s present but not in user mask; MCU will not read it"
-                  % (n, name))
+            lines.append("%2d  %-8s present but not in user mask; MCU will not read it"
+                         % (n, name))
             continue
         ff = CLASSES[kind](reg.uart, address=0x20 + n, location=name)
         try:
@@ -214,13 +243,18 @@ def main():
                 fam, raw, problems = read_x12(ff, kind, part)
         except Exception as exc:  # keep going so one bad module doesn't hide the rest
             failed = True
-            print("%2d  %-8s READ FAILED: %s" % (n, name, exc))
+            lines.append("%2d  %-8s READ FAILED: %s" % (n, name, exc))
             continue
-        print("%2d  %-8s %-6s %-16s %-10s %5d %6.3f  %s  %s"
-              % (n, name, fam, part, serial, temp, vcc,
-                 "ALARM" if problems else "OK", raw))
+        lines.append("%2d  %-8s %-6s %-16s %-10s %5d %6.3f  %s  %s"
+                     % (n, name, fam, part, serial, temp, vcc,
+                        "ALARM" if problems else "OK", raw))
         for p in problems:
-            print("      %s" % p)
+            lines.append("      %s" % p)
+    if args.out_dir:
+        os.makedirs(args.out_dir, exist_ok=True)
+        write_lines(out_path(args.out_dir, info.board_id, "ff_status"), lines, failed)
+    else:
+        print("\n".join(lines))
     return 1 if failed else 0
 
 

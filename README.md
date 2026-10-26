@@ -31,13 +31,14 @@ cm_interface/
 │  ├─ mcu.py              # Command-module MCU register interface
 │  └─ fpga.py             # Raw F1/F2 generic register interface
 ├─ tools/                 # Command-line tools: run ./tools/NAME.py from a checkout; the RPM installs cm-<name>
+│  ├─ _common.py          # Shared conventions: NAME.../--all, --out-dir, --dev-path, --debug, check summary
 │  ├─ clock_checks.py     # cm-clock-checks: read-only Si5395/Si5341 status checks
 │  ├─ clock_dump.py       # cm-clock-dump: clock register dump (--out-dir)
 │  ├─ exercise_mcu.py     # cm-exercise-mcu: exercise the MCU pages; writes/control prompt unless --yes
-│  ├─ ff_status.py        # cm-ff-status: Firefly status summary
+│  ├─ ff_status.py        # cm-ff-status: Firefly status summary (--out-dir)
 │  ├─ lga80d_checks.py    # cm-lga80d-checks: read-only LGA80D frequency/temperature/timing checks
 │  ├─ lga80d_dump.py      # cm-lga80d-dump: LGA80D register dump (--snapshot adds the SNAPSHOT read)
-│  ├─ lga80d_status.py    # cm-lga80d-status: decoded LGA80D status registers (one device or --all)
+│  ├─ lga80d_status.py    # cm-lga80d-status: decoded LGA80D status registers (--out-dir)
 │  ├─ mcu_dump.py         # cm-mcu-dump: read-only MCU page dump (--out-dir)
 │  ├─ mcu_set_rtc.py      # cm-mcu-set-rtc: set the MCU RTC from the host clock
 │  ├─ vccint_2phase.py    # VCCINT 2-phase experiment (not installed in /usr/bin)

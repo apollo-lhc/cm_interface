@@ -29,7 +29,7 @@ Not covered: the scope measurement of EN against PG at turn-off.
 Usage:
     cm-lga80d-checks                              # all checks, all modules
     cm-lga80d-checks --check freq                 # one check
-    cm-lga80d-checks --check temp --device F1VCCINT2
+    cm-lga80d-checks F1VCCINT2 --check temp       # one module
 """
 import argparse
 import os
@@ -47,7 +47,8 @@ from cm_interface.core_config import CORE_CONFIG
 from cm_interface.device.lga80d import LGA80D
 from cm_interface.device.mcu import PowerFsmState
 from cm_interface.errors import CMError
-from cm_interface.registry import Registry
+from cm_interface.tools._common import (add_common_args, add_device_args, make_registry,
+                                       print_summary, selected_devices)
 from cm_interface.utils import decode_linear11, decode_linear16u
 
 EXPECTED_ERRORS = (CMError, OSError, TimeoutError, ValueError, RuntimeError)
@@ -162,11 +163,12 @@ def read_power_state(reg):
 
 
 def check_freq(reg, names, power_state):
-    """FREQUENCY_SWITCH / READ_FREQUENCY / VOUT_DROOP / ramp gain vs LGA80D_init."""
+    """FREQUENCY_SWITCH / READ_FREQUENCY / VOUT_DROOP / ramp gain vs LGA80D_init.
+    Returns name -> True if read, False if a read failed (the notes don't fail)."""
     print("\n=== freq: did LGA80D_init take effect? ===")
     if power_state is not None and power_state != PowerFsmState.POWER_ON:
         print("WARNING: power is not ON; READ_FREQUENCY is only valid on enabled outputs")
-    ok = True
+    ok = {}
     results = {}
     for name in names:
         lga = reg.get_lga80d(name)
@@ -177,9 +179,10 @@ def check_freq(reg, names, power_state):
             droop = [_l11(lga, VOUT_DROOP, p) for p in PAGES]
             gain = _u8(lga, MULTI_PHASE_RAMP_GAIN)         # global
         except EXPECTED_ERRORS as exc:
-            ok = False
+            ok[name] = False
             print("%-10s READ FAILED: %s" % (name, _format_error(exc)))
             continue
+        ok[name] = True
         results[name] = (prog, droop, gain)
         print("%-10s outputs p0/p1 %-7s FREQUENCY_SWITCH %6.1f kHz  READ_FREQUENCY %6.1f kHz  "
               "VOUT_DROOP %.4f/%.4f mV/A  RAMP_GAIN %d"
@@ -219,23 +222,25 @@ def check_freq(reg, names, power_state):
 
 
 def check_temp(reg, names, power_state):
-    """READ_TEMPERATURE_1 (controller die) against READ_TEMPERATURE_3 (DrMOS)."""
+    """READ_TEMPERATURE_1 (controller die) against READ_TEMPERATURE_3 (DrMOS).
+    Returns name -> False if any page's read failed, else True."""
     print("\n=== temp: controller die (8Dh) vs DrMOS hotspot (8Fh) ===")
     if power_state is not None and power_state != PowerFsmState.POWER_ON:
         print("WARNING: power is not ON; the comparison is meant to be made under load")
     print("%-10s page  TEMP_1 (C)  TEMP_3 (C)  T3-T1 (C)  IOUT (A)" % "module")
-    ok = True
+    ok = {}
     max_t1 = None
     max_t3 = None
     for name in names:
         lga = reg.get_lga80d(name)
+        ok[name] = True
         for page in PAGES:
             try:
                 raw1 = _read(lga, READ_TEMPERATURE_1, page, 2)
                 raw3 = _read(lga, READ_TEMPERATURE_3, page, 2)
                 iout = _l11(lga, READ_IOUT, page)
             except EXPECTED_ERRORS as exc:
-                ok = False
+                ok[name] = False
                 print("%-10s  %d    READ FAILED: %s" % (name, page, _format_error(exc)))
                 continue
             t1 = decode_linear11(raw1)
@@ -268,17 +273,19 @@ def _on_off_config_text(value):
 
 
 def check_timing(reg, names):
-    """Turn-on/off settings, ZL8802 Eq. 1/2 and time to PG vs the 25 ms check."""
+    """Turn-on/off settings, ZL8802 Eq. 1/2 and time to PG vs the 25 ms check.
+    Returns name -> False if any read failed, else True."""
     print("\n=== timing: turn-on/off settings vs firmware sequencing ===")
-    ok = True
+    ok = {}
     for name in names:
         lga = reg.get_lga80d(name)
+        ok[name] = True
         try:
             vin = _l11(lga, READ_VIN)                      # global
             freq_khz = _l11(lga, FREQUENCY_SWITCH)         # global
             gain = _u8(lga, MULTI_PHASE_RAMP_GAIN)         # global
         except EXPECTED_ERRORS as exc:
-            ok = False
+            ok[name] = False
             print("%-10s READ FAILED: %s" % (name, _format_error(exc)))
             continue
         for page in PAGES:
@@ -294,7 +301,7 @@ def check_timing(reg, names):
                 toff_f = _l11(lga, TOFF_FALL, page)
                 pg_delay = _l11(lga, POWER_GOOD_DELAY, page)
             except EXPECTED_ERRORS as exc:
-                ok = False
+                ok[name] = False
                 print("%-10s p%d READ FAILED: %s" % (name, page, _format_error(exc)))
                 continue
 
@@ -344,29 +351,28 @@ CHECKS = ("freq", "temp", "timing")
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
+    add_device_args(parser, "LGA80D supply", list(CORE_CONFIG.lga80d), default_all=True)
     parser.add_argument("--check", action="append", choices=CHECKS,
                         help="check to run (repeatable; default: all)")
-    parser.add_argument("--device", action="append", choices=list(CORE_CONFIG.lga80d),
-                        help="LGA80D supply name (repeatable; default: all)")
-    parser.add_argument("--dev-path", default="/dev/ttyUL4",
-                        help="UART device (default: %(default)s)")
-    parser.add_argument("--debug", action="store_true",
-                        help="log every UART transaction to stdout")
+    add_common_args(parser)
     args = parser.parse_args()
 
-    checks = args.check or list(CHECKS)
-    names = args.device or list(CORE_CONFIG.lga80d)
-    reg = Registry(dev_path=args.dev_path, debug=sys.stdout if args.debug else None)
+    checks = [c for c in CHECKS if c in (args.check or CHECKS)]
+    names = selected_devices(parser, args, list(CORE_CONFIG.lga80d), default_all=True)
+    reg = make_registry(args)
 
     power_state = read_power_state(reg)
-    ok = True
-    if "freq" in checks:
-        ok = check_freq(reg, names, power_state) and ok
-    if "temp" in checks:
-        ok = check_temp(reg, names, power_state) and ok
-    if "timing" in checks:
-        ok = check_timing(reg, names) and ok
-    return 0 if ok else 1
+    results = {name: {} for name in names}
+    for check in checks:
+        if check == "freq":
+            per_device = check_freq(reg, names, power_state)
+        elif check == "temp":
+            per_device = check_temp(reg, names, power_state)
+        else:
+            per_device = check_timing(reg, names)
+        for name, passed in per_device.items():
+            results[name][check] = passed
+    return 0 if print_summary(names, checks, results) else 1
 
 
 if __name__ == "__main__":

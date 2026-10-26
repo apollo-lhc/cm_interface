@@ -22,6 +22,7 @@ Usage:
     cm-lga80d-dump F1VCCINT1
     cm-lga80d-dump F1VCCINT1 --page 0 --include-unconfirmed
     cm-lga80d-dump F1VCCINT1 --snapshot
+    cm-lga80d-dump F1VCCINT1 F2VCCINT1
     cm-lga80d-dump --all --out-dir DIR
 """
 import argparse
@@ -37,7 +38,9 @@ if not __package__:
         sys.path.insert(0, _package_parent)
 
 from cm_interface.core_config import CORE_CONFIG
-from cm_interface.registry import Registry
+from cm_interface.tools._common import (add_common_args, add_device_args, add_out_dir_arg,
+                                       board_info, make_registry, out_path,
+                                       selected_devices, write_lines)
 from cm_interface.utils import decode_linear11, decode_linear16u
 
 # (name, command, size in bytes, unconfirmed). Mirrors registers/lga80d.json
@@ -182,20 +185,6 @@ def snapshot_lines(lga, page):
     return lines, True
 
 
-def board_info(reg):
-    """Return (board header lines, board id or None). Never fatal: old firmware
-    or a missing MCU capability just yields 'unavailable'."""
-    try:
-        info = reg.get_mcu().system_info
-    except Exception as exc:
-        return ["  board id:  unavailable (%s)" % exc], None
-    return [
-        "  board id:  %d" % info.board_id,
-        "  hw rev:    %d" % info.hardware_revision,
-        "  firmware:  %s" % info.git_version,
-    ], info.board_id
-
-
 def dump_supply(reg, device, args, board_lines, board_id, registers, pages, echo):
     """Dump one supply. Prints to stdout if echo; writes files if --out-dir.
     Returns True if anything failed."""
@@ -232,24 +221,15 @@ def dump_supply(reg, device, args, board_lines, board_id, registers, pages, echo
             print("\n".join((header if page == pages[0] else []) + lines))
         if args.out_dir:
             # Every file carries the header, even for the second page.
-            # "/" in a supply name (3V3/1V8) would be a directory separator.
-            path = os.path.join(args.out_dir, "cm%s_%s_%d.txt" % (
-                "unknown" if board_id is None else board_id,
-                device.replace("/", "-"), page))
-            with open(path, "w") as fh:
-                fh.write("\n".join(header + lines) + "\n")
-            print("wrote %s%s" % (path, "  (read failures)" if failed else ""))
+            write_lines(out_path(args.out_dir, board_id, "%s_%d" % (device, page)),
+                        header + lines, failed)
     return failed
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("device", nargs="?", choices=sorted(CORE_CONFIG.lga80d),
-                        help="LGA80D supply name")
-    parser.add_argument("--all", action="store_true",
-                        help="dump every LGA80D supply (requires --out-dir; "
-                             "only the 'wrote' lines go to stdout)")
+    add_device_args(parser, "LGA80D supply", sorted(CORE_CONFIG.lga80d))
     parser.add_argument("--page", type=int, choices=(0, 1),
                         help="only this output page (default: both)")
     parser.add_argument("--include-unconfirmed", action="store_true",
@@ -257,30 +237,21 @@ def main():
     parser.add_argument("--snapshot", action="store_true",
                         help="also capture and print the 32-byte SNAPSHOT per page "
                              "(not a pure read; needs firmware with the SN device)")
-    parser.add_argument("--dev-path", default="/dev/ttyUL4",
-                        help="UART device (default: %(default)s)")
-    parser.add_argument("--out-dir", metavar="DIR",
-                        help="also write one file per page to DIR, named "
-                             "cm<boardid>_<supply>_<page>.txt (existing files are "
-                             "overwritten; board id is 'unknown' if the MCU can't "
-                             "report it)")
+    add_out_dir_arg(parser, "one file per page, cm<boardid>_<supply>_<page>.txt,")
+    add_common_args(parser)
     args = parser.parse_args()
-    if args.all == (args.device is not None):
-        parser.error("give either a supply name or --all")
-    if args.all and not args.out_dir:
-        parser.error("--all requires --out-dir")
+    devices = selected_devices(parser, args, sorted(CORE_CONFIG.lga80d))
 
-    reg = Registry(dev_path=args.dev_path)
+    reg = make_registry(args)
     board_lines, board_id = board_info(reg)
     registers = load_registers(args.include_unconfirmed)
     pages = (0, 1) if args.page is None else (args.page,)
     if args.out_dir:
         os.makedirs(args.out_dir, exist_ok=True)
-    devices = sorted(CORE_CONFIG.lga80d) if args.all else [args.device]
     failed = False
     for device in devices:
         failed = dump_supply(reg, device, args, board_lines, board_id,
-                             registers, pages, echo=not args.all) or failed
+                             registers, pages, echo=not args.out_dir) or failed
     return 1 if failed else 0
 
 

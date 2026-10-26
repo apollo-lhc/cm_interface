@@ -80,7 +80,7 @@ if not __package__:
 
 from cm_interface.device.lga80d import LGA80DReg
 from cm_interface.device.mcu import PowerFsmState
-from cm_interface.registry import Registry
+from cm_interface.tools._common import add_common_args, make_registry
 
 FPGAS = (1, 2)
 
@@ -227,14 +227,13 @@ def main():
     parser.add_argument("--drop-rail", type=int, choices=RAIL_IDS, metavar="N",
                         help="2-phase mode only: also move FnVCCINT2 to its own "
                              "2-phase rail N (0-31, must be unused)")
-    parser.add_argument("--dev-path", default="/dev/ttyUL4",
-                        help="UART device (default: %(default)s)")
+    add_common_args(parser)
     args = parser.parse_args()
     if args.restore and args.drop_rail is not None:
         parser.error("--drop-rail cannot be combined with --restore")
 
     KEEP, DROP = rail_names(args.fpga)
-    reg = Registry(dev_path=args.dev_path)
+    reg = make_registry(args)
     keep = reg.get_lga80d(KEEP)
     drop = reg.get_lga80d(DROP)
 

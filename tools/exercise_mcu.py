@@ -32,7 +32,6 @@ if not __package__:
         sys.path.insert(0, _package_parent)
 
 from cm_interface.errors import CMError, McuCapabilityUnavailable
-from cm_interface.registry import Registry
 from cm_interface.device.mcu import (
     ALARM_TEMP_MAX_C,
     ALARM_TEMP_MIN_C,
@@ -42,6 +41,7 @@ from cm_interface.device.mcu import (
     McuControlCommand,
     describe_reset_cause,
 )
+from cm_interface.tools._common import add_common_args, make_registry
 
 
 # RuntimeError is here on purpose: _run_section is a per-section warning
@@ -289,10 +289,7 @@ def power_cycle(mcu, assume_yes):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dev-path", default="/dev/ttyUL4",
-                         help="serial device path (default: /dev/ttyUL4)")
-    parser.add_argument("--debug", action="store_true",
-                         help="log raw UART transactions to stdout")
+    add_common_args(parser)
     operation = parser.add_mutually_exclusive_group()
     operation.add_argument("--send-control", metavar="COMMAND",
                            choices=[c.name for c in McuControlCommand],
@@ -321,8 +318,7 @@ def main():
         except ValueError:
             parser.error("CELSIUS must be a whole number")
 
-    reg = Registry(dev_path=args.dev_path,
-                    debug=sys.stdout if args.debug else None)
+    reg = make_registry(args)
     mcu = reg.get_mcu()
 
     if args.send_control:
