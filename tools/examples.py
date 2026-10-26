@@ -6,6 +6,16 @@ This module demonstrates common operations for managing Si5395 clocks,
 Firefly optical transceivers, and LGA80D DC-DC converters.
 """
 
+import os
+import sys
+
+# Permit direct execution from a checkout (./tools/NAME.py) without the RPM.
+if not __package__:
+    _package_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    _package_parent = os.path.dirname(_package_dir)
+    if _package_parent not in sys.path:
+        sys.path.insert(0, _package_parent)
+
 from cm_interface.registry import Registry
 from cm_interface.device.si5395 import Si5395Reg
 from cm_interface.device.firefly import Firefly12, Firefly4, FireflyTx, FireflyRx

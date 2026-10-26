@@ -1,6 +1,6 @@
 import unittest
 
-from cm_interface import lga80d_dump
+from cm_interface.tools import lga80d_dump
 from cm_interface.device.lga80d import LGA80D
 
 

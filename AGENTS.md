@@ -97,7 +97,7 @@ The Python `MCU` client for ProgCom device `MC 0` follows
 - `set_rtc(when=None)` writes the Control-page RTC set word (needs
   `RTC_WRITE`, map minor >= 4): host local wall-clock time as seconds since
   1970-01-01 of that clock, not Unix time. Client and firmware refuse values
-  before 2026-01-01. `mcu_set_rtc.py` is the command-line wrapper;
+  before 2026-01-01. `cm-mcu-set-rtc` is the command-line wrapper;
 - `send_control(McuControlCommand...)` writes the one-byte write-only
   Control-page command (`ASSERT`/`RELEASE_PROGCOM_POWER_INHIBIT`,
   `CLEAR_POWER_FAULT`, `CLEAR_ALARM_LATCHES`, `ZYNQMON_ENABLE_TRANSMIT`,

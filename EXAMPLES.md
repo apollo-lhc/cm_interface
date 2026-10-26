@@ -398,8 +398,8 @@ fault, and release it only after the cause is resolved.
 The same operations are available from the hardware exercise script:
 
 ```bash
-./exercise_mcu.py --power-cycle --yes
-./exercise_mcu.py --send-control CLEAR_POWER_FAULT
+cm-exercise-mcu --power-cycle --yes
+cm-exercise-mcu --send-control CLEAR_POWER_FAULT
 ```
 
 ---
@@ -516,16 +516,16 @@ print(f"  Rx-only: {len(inventory['rx_only'])} - {inventory['rx_only']}")
 
 ## Running the Examples
 
-The complete examples are available in `examples.py`. Run them with:
+The complete examples are available in `tools/examples.py`. Run them with:
 
 ```bash
-python3 examples.py
+python -m cm_interface.tools.examples   # from the directory above cm_interface
 ```
 
 Or import individual functions:
 
 ```python
-from cm_interface.examples import example_disable_cdr_all_fireflies
+from cm_interface.tools.examples import example_disable_cdr_all_fireflies
 example_disable_cdr_all_fireflies()
 ```
 

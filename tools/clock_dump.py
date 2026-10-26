@@ -28,18 +28,19 @@ CBPro-computed tuning (LOS/OOF/LOL thresholds and windows, holdover,
 fastlock, loop bandwidth codes, phase adjust) is not read.
 
 Usage:
-    clock_dump.py R0A
-    clock_dump.py --all --out-dir DIR
-    clock_dump.py R0A --hw-rev 2
+    cm-clock-dump R0A
+    cm-clock-dump R0A R1B
+    cm-clock-dump --all --out-dir DIR
+    cm-clock-dump R0A --hw-rev 2
 """
 import argparse
 import os
 import sys
 import time
 
-# Permit direct execution from this package directory (as exercise_mcu.py does).
+# Permit direct execution from a checkout (./tools/NAME.py) without the RPM.
 if not __package__:
-    _package_dir = os.path.dirname(os.path.realpath(__file__))
+    _package_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
     _package_parent = os.path.dirname(_package_dir)
     if _package_parent not in sys.path:
         sys.path.insert(0, _package_parent)
@@ -48,8 +49,9 @@ from collections import namedtuple
 
 from cm_interface.core_config import CORE_CONFIG
 from cm_interface.device.clock import DEVICE_READY_VALUE
-from cm_interface.lga80d_dump import board_info
-from cm_interface.registry import Registry
+from cm_interface.tools._common import (add_common_args, add_device_args, add_out_dir_arg,
+                                       board_info, make_registry, out_path,
+                                       selected_devices, write_lines)
 
 MAX_READ_BYTES = 4
 
@@ -487,11 +489,7 @@ def dump_clock(reg, name, args, board_lines, board_id, echo):
     if echo:
         print("\n".join(lines))
     if args.out_dir:
-        path = os.path.join(args.out_dir, "cm%s_%s.txt" % (
-            "unknown" if board_id is None else board_id, name))
-        with open(path, "w") as fh:
-            fh.write("\n".join(lines) + "\n")
-        print("wrote %s" % path)
+        write_lines(out_path(args.out_dir, board_id, name), lines)
         if not echo:
             print(result_line)
     return failed
@@ -500,27 +498,16 @@ def dump_clock(reg, name, args, board_lines, board_id, echo):
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("device", nargs="?", choices=list(CORE_CONFIG.clocks),
-                        help="clock name")
-    parser.add_argument("--all", action="store_true",
-                        help="dump every clock (requires --out-dir; only the "
-                             "'wrote' lines go to stdout)")
-    parser.add_argument("--dev-path", default="/dev/ttyUL4",
-                        help="UART device (default: %(default)s)")
-    parser.add_argument("--out-dir", metavar="DIR",
-                        help="also write one file per clock to DIR, named "
-                             "cm<boardid>_<clock>.txt (existing files are overwritten; "
-                             "board id is 'unknown' if the MCU can't report it)")
+    add_device_args(parser, "clock", list(CORE_CONFIG.clocks))
+    add_out_dir_arg(parser, "cm<boardid>_<clock>.txt, one file per clock")
     parser.add_argument("--hw-rev", type=int, metavar="N",
                         help="board revision to assume instead of the MCU's "
                              "HARDWARE_REVISION (e.g. EEPROM not programmed)")
+    add_common_args(parser)
     args = parser.parse_args()
-    if args.all == (args.device is not None):
-        parser.error("give either a clock name or --all")
-    if args.all and not args.out_dir:
-        parser.error("--all requires --out-dir")
+    names = selected_devices(parser, args, list(CORE_CONFIG.clocks))
 
-    reg = Registry(dev_path=args.dev_path, hw_rev=args.hw_rev)
+    reg = make_registry(args, hw_rev=args.hw_rev)
     board_lines, board_id = board_info(reg)
     if args.hw_rev is not None:
         board_lines = board_lines + ["  clocks for hw rev %d (--hw-rev)" % args.hw_rev]
@@ -532,11 +519,10 @@ def main():
         return 1
     if args.out_dir:
         os.makedirs(args.out_dir, exist_ok=True)
-    names = list(CORE_CONFIG.clocks) if args.all else [args.device]
     failed = False
     for name in names:
         failed = dump_clock(reg, name, args, board_lines, board_id,
-                            echo=not args.all) or failed
+                            echo=not args.out_dir) or failed
     return 1 if failed else 0
 
 

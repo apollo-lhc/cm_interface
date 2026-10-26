@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 Exercise the command-module MCU's ProgCom register area (``MC 0``) on real
 hardware, following ``MCU_REGISTER_MAP.md``.
@@ -12,11 +12,11 @@ confirm. ``--set-alarm-temp`` and ``--set-volt-threshold`` write the Config page
 (persisted to EEPROM) and need the same confirmation.
 
 Usage:
-    ./exercise_mcu.py [--dev-path /dev/ttyUL4] [--debug]
-    ./exercise_mcu.py --send-control CLEAR_ALARM_LATCHES [--yes]
-    ./exercise_mcu.py --power-cycle [--yes]
-    ./exercise_mcu.py --set-alarm-temp FPGA 85 [--yes]
-    ./exercise_mcu.py --set-volt-threshold 5 [--yes]
+    cm-exercise-mcu [--dev-path /dev/ttyUL4] [--debug]
+    cm-exercise-mcu --send-control CLEAR_ALARM_LATCHES [--yes]
+    cm-exercise-mcu --power-cycle [--yes]
+    cm-exercise-mcu --set-alarm-temp FPGA 85 [--yes]
+    cm-exercise-mcu --set-volt-threshold 5 [--yes]
 """
 
 import argparse
@@ -24,16 +24,14 @@ import os
 import sys
 import time
 
-# Permit direct execution from either the repository root (via its symlink)
-# or this package directory, without requiring an installation step.
+# Permit direct execution from a checkout (./tools/NAME.py) without the RPM.
 if not __package__:
-    _package_dir = os.path.dirname(os.path.realpath(__file__))
+    _package_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
     _package_parent = os.path.dirname(_package_dir)
     if _package_parent not in sys.path:
         sys.path.insert(0, _package_parent)
 
 from cm_interface.errors import CMError, McuCapabilityUnavailable
-from cm_interface.registry import Registry
 from cm_interface.device.mcu import (
     ALARM_TEMP_MAX_C,
     ALARM_TEMP_MIN_C,
@@ -43,6 +41,7 @@ from cm_interface.device.mcu import (
     McuControlCommand,
     describe_reset_cause,
 )
+from cm_interface.tools._common import add_common_args, make_registry
 
 
 # RuntimeError is here on purpose: _run_section is a per-section warning
@@ -290,10 +289,7 @@ def power_cycle(mcu, assume_yes):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dev-path", default="/dev/ttyUL4",
-                         help="serial device path (default: /dev/ttyUL4)")
-    parser.add_argument("--debug", action="store_true",
-                         help="log raw UART transactions to stdout")
+    add_common_args(parser)
     operation = parser.add_mutually_exclusive_group()
     operation.add_argument("--send-control", metavar="COMMAND",
                            choices=[c.name for c in McuControlCommand],
@@ -322,8 +318,7 @@ def main():
         except ValueError:
             parser.error("CELSIUS must be a whole number")
 
-    reg = Registry(dev_path=args.dev_path,
-                    debug=sys.stdout if args.debug else None)
+    reg = make_registry(args)
     mcu = reg.get_mcu()
 
     if args.send_control:

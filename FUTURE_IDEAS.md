@@ -107,7 +107,7 @@ register writes, so it is implemented in Python — `LGA80D.reset_snapshot(page)
 read cannot go through the 4-byte `DC` path, so the firmware gained a ProgCom `SN` device
 instead of the earlier `s DC` verb idea: `w SN <dev> <page> 00 01` captures into a one-slot
 cache and `r SN <dev> <page> <off> [<len>]` reads it (`../PROGCOM_SNAPSHOT_PLAN.md`,
-`cm_mcu/projects/cm_mcu/README.md`). `lga80d_dump.py --snapshot` prints it.
+`cm_mcu/projects/cm_mcu/README.md`). `cm-lga80d-dump --snapshot` prints it.
 
 **Outstanding:** optionally a `reset_after` option on
 the read, which was left out on purpose because reset is already reachable and has a physical

@@ -61,19 +61,19 @@ Si5341 (Si5341/40 Rev D RM Rev 1.3, chapter 14) differs:
   reference manual and have not been checked on a Rev2 board.
 
 Usage:
-    clock_checks.py                         # all checks, all clocks
-    clock_checks.py --check status          # one check
-    clock_checks.py --check flags --device R0A
-    clock_checks.py --hw-rev 2              # override the MCU's board revision
+    cm-clock-checks                         # all checks, all clocks
+    cm-clock-checks --check status          # one check
+    cm-clock-checks R0A R1B --check flags   # some clocks
+    cm-clock-checks --hw-rev 2              # override the MCU's board revision
 """
 import argparse
 import os
 import sys
 from collections import namedtuple
 
-# Permit direct execution from this package directory (as exercise_mcu.py does).
+# Permit direct execution from a checkout (./tools/NAME.py) without the RPM.
 if not __package__:
-    _package_dir = os.path.dirname(os.path.realpath(__file__))
+    _package_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
     _package_parent = os.path.dirname(_package_dir)
     if _package_parent not in sys.path:
         sys.path.insert(0, _package_parent)
@@ -83,7 +83,8 @@ from cm_interface.device.clock import DEVICE_READY_VALUE
 from cm_interface.device.si5341 import Si5341Reg
 from cm_interface.device.si5395 import Si5395Reg
 from cm_interface.errors import ClockIdentityError, CMError
-from cm_interface.registry import Registry
+from cm_interface.tools._common import (add_common_args, add_device_args, make_registry,
+                                       print_summary, selected_devices)
 
 EXPECTED_ERRORS = (CMError, OSError, TimeoutError, ValueError, RuntimeError)
 
@@ -445,14 +446,17 @@ def check_flags_5341(clock, mon):
 # ---------------------------------------------------------------- driver
 
 def check_clock(clock, checks):
-    """Run the selected checks on one clock. Returns True when all pass."""
+    """Run the selected checks on one clock. Returns check -> pass/fail for
+    each check that ran; empty if the clock is not ready, is the wrong chip
+    or its configuration could not be read."""
+    results = {}
     name = clock.name
     try:
         if not check_ready(clock) or not check_identity(clock):
-            return False
+            return results
     except EXPECTED_ERRORS as exc:
         print("%-4s READ FAILED: %s" % (name, _format_error(exc)))
-        return False
+        return results
     profile = PROFILES[clock.CHIP]
     mon = None
     if set(checks) & {"status", "flags"}:
@@ -460,15 +464,14 @@ def check_clock(clock, checks):
             mon = profile["monitors"](clock)
         except EXPECTED_ERRORS as exc:
             print("%-4s config READ FAILED: %s" % (name, _format_error(exc)))
-            return False
-    ok = True
+            return results
     for check in checks:
         try:
-            ok = profile[check](clock, mon) and ok
+            results[check] = bool(profile[check](clock, mon))
         except EXPECTED_ERRORS as exc:
             print("%-4s %s READ FAILED: %s" % (name, check, _format_error(exc)))
-            ok = False
-    return ok
+            results[check] = False
+    return results
 
 
 CHECKS = ("id", "status", "flags")
@@ -483,23 +486,18 @@ PROFILES = {
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
+    add_device_args(parser, "clock", list(CORE_CONFIG.clocks), default_all=True)
     parser.add_argument("--check", action="append", choices=CHECKS,
                         help="check to run (repeatable; default: all)")
-    parser.add_argument("--device", action="append", choices=list(CORE_CONFIG.clocks),
-                        help="clock name (repeatable; default: all)")
-    parser.add_argument("--dev-path", default="/dev/ttyUL4",
-                        help="UART device (default: %(default)s)")
     parser.add_argument("--hw-rev", type=int, metavar="N",
                         help="board revision to assume instead of the MCU's "
                              "HARDWARE_REVISION (e.g. EEPROM not programmed)")
-    parser.add_argument("--debug", action="store_true",
-                        help="log every UART transaction to stdout")
+    add_common_args(parser)
     args = parser.parse_args()
 
     checks = [c for c in CHECKS if c in (args.check or CHECKS)]
-    names = args.device or list(CORE_CONFIG.clocks)
-    reg = Registry(dev_path=args.dev_path, debug=sys.stdout if args.debug else None,
-                   hw_rev=args.hw_rev)
+    names = selected_devices(parser, args, list(CORE_CONFIG.clocks), default_all=True)
+    reg = make_registry(args, hw_rev=args.hw_rev)
     try:
         clocks = reg.clocks
     except EXPECTED_ERRORS as exc:
@@ -510,14 +508,11 @@ def main():
         reg.hw_rev, " (--hw-rev)" if args.hw_rev is not None else " (MCU)",
         "  ".join("%s=%s" % (n, clocks[n].CHIP) for n in names)))
 
-    ok = True
+    results = {}
     for name in names:
         print()
-        clock_ok = check_clock(reg.get_clock(name), checks)
-        print("%-4s result: %s" % (name, "OK" if clock_ok else "PROBLEMS FOUND"))
-        ok = clock_ok and ok
-    print("\nresult: %s" % ("OK" if ok else "PROBLEMS FOUND"))
-    return 0 if ok else 1
+        results[name] = check_clock(reg.get_clock(name), checks)
+    return 0 if print_summary(names, checks, results) else 1
 
 
 if __name__ == "__main__":

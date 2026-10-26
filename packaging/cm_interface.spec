@@ -27,9 +27,22 @@ power supplies, MCU registers, and raw FPGA generic interfaces.
 %install
 install -d %{buildroot}%{python3_sitelib}/cm_interface/device
 install -d %{buildroot}%{python3_sitelib}/cm_interface/registers
+install -d %{buildroot}%{python3_sitelib}/cm_interface/tools
+install -d %{buildroot}%{_bindir}
 install -m 0644 *.py %{buildroot}%{python3_sitelib}/cm_interface/
 install -m 0644 device/*.py %{buildroot}%{python3_sitelib}/cm_interface/device/
 install -m 0644 registers/*.json %{buildroot}%{python3_sitelib}/cm_interface/registers/
+install -m 0644 tools/*.py %{buildroot}%{python3_sitelib}/cm_interface/tools/
+# vccint_2phase rewrites LGA80D rail configuration; keep it out of the RPM.
+rm %{buildroot}%{python3_sitelib}/cm_interface/tools/vccint_2phase.py
+# Each tool module gets a cm-<name> launcher (underscores become dashes).
+for tool in clock_checks clock_dump exercise_mcu ff_status lga80d_checks \
+            lga80d_dump lga80d_status mcu_dump mcu_set_rtc; do
+    launcher=%{buildroot}%{_bindir}/cm-$(echo "$tool" | tr _ -)
+    printf '#!%{__python3}\nimport sys\nfrom cm_interface.tools.%s import main\nsys.exit(main())\n' \
+        "$tool" > "$launcher"
+    chmod 0755 "$launcher"
+done
 
 %check
 PYTHONPATH=%{buildroot}%{python3_sitelib} %{__python3} -m pytest tests/ --ignore=tests/hw
@@ -37,3 +50,4 @@ PYTHONPATH=%{buildroot}%{python3_sitelib} %{__python3} -m pytest tests/ --ignore
 %files
 %doc README.md EXAMPLES.md MCU_REGISTER_MAP.md
 %{python3_sitelib}/cm_interface/
+%{_bindir}/cm-*

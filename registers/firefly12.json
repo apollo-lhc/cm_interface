@@ -15,6 +15,7 @@
   },
   "tx_registers": {
     "STATUS_SUMMARY": {"addr": "0x06", "size": 1, "access": "RO", "bits": {"7": "TX LOS summary", "6-5": "Reserved", "1": "Module Alarm Summary", "0": "Init Complete (resets to 0 on read)"}, "description": "Table 12. Bit 0 is cleared by reading this byte."},
+    "TX_LOS_LATCH": {"addr": "0x07", "size": 2, "access": "RO", "description": "Bytes 7-8 (Table 13). Latched TX Loss of Signal (12 channels), same channel/nibble layout as CDR_ENABLE. Latched bits clear on read or module reset."},
     "TX_FAULT_LATCH": {"addr": "0x09", "size": 2, "access": "RO", "description": "Latched TX fault flags (12 channels, bits 0-11). Latched bits clear on read or module reset (may re-assert immediately if the fault persists and its mask bit is unset)."},
     "TEMP_ALARM_LATCH": {"addr": "0x11", "size": 1, "access": "RO", "bits": {"7": "Temp High", "6": "Temp Low", "5-0": "Reserved"}},
     "VCC_ALARM_LATCH": {"addr": "0x12", "size": 1, "access": "RO", "bits": {"7": "VCC High", "6": "VCC Low", "5-0": "Reserved"}},
@@ -30,6 +31,7 @@
   "rx_registers": {
     "STATUS_SUMMARY": {"addr": "0x06", "size": 1, "access": "RO", "bits": {"7": "Reserved", "6": "LOS summary", "5": "Fault Summary", "4-3": "Reserved", "2": "Low-power summary", "1": "Module Alarm Summary", "0": "Init Complete (resets to 0 on read)"}, "description": "Table 34. Bit 0 is cleared by reading this byte."},
     "RX_LOS_LATCH": {"addr": "0x07", "size": 2, "access": "RO", "description": "Latched RX Loss of Signal (12 channels). Latched bits clear on read or module reset."},
+    "RX_POWER_ALARM": {"addr": "0x0E", "size": 3, "access": "RO", "description": "Bytes 14-16 (Table 36). Latched Rx power alarms, 2 bits per channel: byte 16 bits 1-0 = Rx00 .. byte 14 bits 7-6 = Rx11 (0-based). 00 = in range, 01 = too low, 10 = too high. Latched bits clear on read or module reset."},
     "TEMP_ALARM_LATCH": {"addr": "0x11", "size": 1, "access": "RO", "bits": {"7": "Temp High", "6": "Temp Low", "5-0": "Reserved"}},
     "VCC_ALARM_LATCH": {"addr": "0x12", "size": 1, "access": "RO", "bits": {"7": "VCC High", "6": "VCC Low", "5-0": "Reserved"}},
     "RX_DISABLE": {"addr": "0x34", "size": 2, "access": "RW", "description": "Per-channel RX disable (bits 0-11, 0-based). Table 40. NOT the same as RX_OUTPUT_DISABLE."},
