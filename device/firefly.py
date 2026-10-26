@@ -194,6 +194,7 @@ class FireflyTx(_FireflyBase):
 
     class Reg(IntEnum):
         STATUS = 0x06
+        TX_LOS_LATCH = 0x07       # Bytes 7-8 (Table 13)
         TX_FAULT_LATCH = 0x09
         TEMP_ALARM = 0x11
         VCC_ALARM = 0x12
@@ -273,6 +274,7 @@ class FireflyRx(_FireflyBase):
     class Reg(IntEnum):
         STATUS = 0x06
         RX_LOS_LATCH = 0x07
+        RX_POWER_ALARM = 0x0E     # Bytes 14-16, 2 bits per channel (Table 36)
         TEMP_ALARM = 0x11
         VCC_ALARM = 0x12
         TEMP_MONITOR = 0x16
@@ -375,6 +377,9 @@ class Firefly4(_FireflyBase):
 
     class Reg(IntEnum):
         STATUS = 0x02
+        LOS_ALARMS = 0x03        # Latched Tx/Rx LOS (Table 29)
+        TX_FAULT_LATCH = 0x04    # Latched Tx fault, bits 0-3 (Table 30)
+        CDR_LOL_ALARMS = 0x05    # Latched Tx/Rx CDR LOL (Table 31)
         TEMP_ALARM = 0x06        # Combined temperature warning/alarm byte
         VCC_ALARM = 0x07         # Combined VCC3.3/VCC1.8 warning/alarm byte
         ELAPSED_TIME = 0x13      # 2 bytes
