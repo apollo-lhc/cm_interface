@@ -41,7 +41,7 @@ cm_interface/
 │  ├─ lga80d_status.py    # cm-lga80d-status: decoded LGA80D status registers (--out-dir)
 │  ├─ mcu_dump.py         # cm-mcu-dump: read-only MCU page dump (--out-dir)
 │  ├─ mcu_set_rtc.py      # cm-mcu-set-rtc: set the MCU RTC from the host clock
-│  ├─ vccint_2phase.py    # VCCINT 2-phase experiment (not installed in /usr/bin)
+│  ├─ vccint_2phase.py    # VCCINT 2-phase experiment (checkout only; not in the RPM)
 │  └─ examples.py         # Worked examples (see EXAMPLES.md; not installed in /usr/bin)
 ├─ tests/                 # FakeUART unit tests; tests/hw/ is the opt-in hardware suite
 └─ registers/
