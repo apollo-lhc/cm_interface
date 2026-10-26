@@ -110,7 +110,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     add_device_args(parser, "LGA80D supply", sorted(CORE_CONFIG.lga80d))
-    add_out_dir_arg(parser, "one file per supply, cm<boardid>_<supply>_status.txt,")
+    add_out_dir_arg(parser, "cm<boardid>_<supply>_status.txt, one file per supply")
     add_common_args(parser)
     args = parser.parse_args()
     names = selected_devices(parser, args, sorted(CORE_CONFIG.lga80d))

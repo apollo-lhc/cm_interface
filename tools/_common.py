@@ -31,7 +31,8 @@ def add_device_args(parser, what, names, default_all=False):
     selected_devices(), not by argparse: nargs='*' with choices rejects an
     empty list on older Pythons."""
     parser.add_argument("device", nargs="*", metavar="NAME",
-                        help="%s name(s)%s: %s" % (
+                        help="%s name(s)%s, given together (not split around "
+                             "options): %s" % (
                             what, " (default: all)" if default_all else "",
                             ", ".join(names)))
     parser.add_argument("--all", action="store_true", help="every %s" % what)
@@ -53,11 +54,11 @@ def selected_devices(parser, args, names, default_all=False):
     return list(dict.fromkeys(args.device))
 
 
-def add_out_dir_arg(parser, naming):
+def add_out_dir_arg(parser, file_name):
     parser.add_argument("--out-dir", metavar="DIR",
-                        help="write %s to DIR instead of stdout (existing files "
+                        help="write to DIR instead of stdout, as %s (existing files "
                              "are overwritten; board id is 'unknown' if the MCU "
-                             "can't report it)" % naming)
+                             "can't report it)" % file_name)
 
 
 def out_path(out_dir, board_id, name):
@@ -87,25 +88,26 @@ def board_info(reg):
     ], info.board_id
 
 
-def _cell(value):
-    return "-" if value is None else ("OK" if value else "FAIL")
+def _cell(row, check):
+    if check not in row:
+        return "-"
+    return "OK" if row[check] else "FAIL"
 
 
 def print_summary(names, checks, results):
     """Print a device x check table and the overall result; return True if
-    everything passed. results[name] maps check -> True/False, or None for a
-    check that did not run; a device with no entry at all counts as failed."""
+    everything passed. results[name] maps check -> pass/fail; a check missing
+    from it did not run ("-") and fails the device."""
     width = max([len(n) for n in names] + [6])
     print("\nsummary")
     print("  %-*s  %s  result" % (width, "device", "".join("%-8s" % c for c in checks)))
     all_ok = True
     for name in names:
-        row = results.get(name)
-        device_ok = bool(row) and all(row.get(c) is not False for c in checks) \
-            and any(row.get(c) for c in checks)
+        row = results.get(name, {})
+        device_ok = all(row.get(c) for c in checks)
         all_ok = all_ok and device_ok
         print("  %-*s  %s  %s" % (width, name,
-                                  "".join("%-8s" % _cell((row or {}).get(c)) for c in checks),
+                                  "".join("%-8s" % _cell(row, c) for c in checks),
                                   "OK" if device_ok else "FAIL"))
     print("result: %s" % ("OK" if all_ok else "PROBLEMS FOUND"))
     return all_ok

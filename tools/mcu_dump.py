@@ -89,7 +89,7 @@ def dump_mcu(reg, args, board_lines, board_id):
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    add_out_dir_arg(parser, "the dump, cm<boardid>_mcu.txt,")
+    add_out_dir_arg(parser, "cm<boardid>_mcu.txt")
     add_common_args(parser)
     args = parser.parse_args()
 

@@ -499,7 +499,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     add_device_args(parser, "clock", list(CORE_CONFIG.clocks))
-    add_out_dir_arg(parser, "one file per clock, cm<boardid>_<clock>.txt,")
+    add_out_dir_arg(parser, "cm<boardid>_<clock>.txt, one file per clock")
     parser.add_argument("--hw-rev", type=int, metavar="N",
                         help="board revision to assume instead of the MCU's "
                              "HARDWARE_REVISION (e.g. EEPROM not programmed)")

@@ -64,6 +64,22 @@ def location(slot_name):
 # says which revision this board is.
 LOCATIONS = sorted({location(name) for slots in SLOTS.values() for name, _ in slots})
 
+def select_slots(slots, populated, wanted, hw_rev):
+    """Return (note lines, populated slot numbers to read). wanted is None for
+    --all, meaning every populated slot of this revision; otherwise the named
+    locations, and only those are reported when absent or not populated."""
+    if wanted is None:
+        return [], populated
+    rev_locations = [location(name) for name, _ in slots]
+    notes = []
+    for loc in wanted:
+        if loc not in rev_locations:
+            notes.append("%s: no such location on board revision %d" % (loc, hw_rev))
+        elif not any(location(slots[n][0]) == loc for n in populated):
+            notes.append("%s: not populated" % loc)
+    return notes, [n for n in populated if location(slots[n][0]) in wanted]
+
+
 # x12 status summary byte 6 (Tables 12/34; CERN-B Tables 24/39). Bit 0
 # (init complete) clears on read and is not an alarm, so it is not listed.
 SUMMARY_BITS = {
@@ -188,10 +204,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     add_device_args(parser, "Firefly location", LOCATIONS)
-    add_out_dir_arg(parser, "the table, cm<boardid>_ff_status.txt,")
+    add_out_dir_arg(parser, "cm<boardid>_ff_status.txt")
     add_common_args(parser)
     args = parser.parse_args()
     wanted = selected_devices(parser, args, LOCATIONS)
+    if args.all:
+        wanted = None  # this board revision's slots, not every revision's
 
     reg = make_registry(args)
     info = reg.mcu.system_info
@@ -212,21 +230,14 @@ def main():
         "present mask 0x%05X  user mask 0x%05X  populated %d of %d"
         % (present, user, len(populated), len(slots)),
     ]
-    rev_locations = [location(name) for name, _ in slots]
-    for loc in wanted:
-        if loc not in rev_locations:
-            lines.append("%s: no such location on board revision %d"
-                         % (loc, info.hardware_revision))
-        elif not any(location(slots[n][0]) == loc for n in populated):
-            lines.append("%s: not populated" % loc)
+    notes, to_read = select_slots(slots, populated, wanted, info.hardware_revision)
+    lines += notes
     lines.append("%2s  %-8s %-6s %-16s %-10s %5s %6s  %s"
                  % ("#", "slot", "type", "part", "serial", "T(C)", "Vcc(V)", "status"))
 
     failed = False
-    for n in populated:
+    for n in to_read:
         name, kind = slots[n]
-        if location(name) not in wanted:
-            continue
         if not user & (1 << n):
             lines.append("%2d  %-8s present but not in user mask; MCU will not read it"
                          % (n, name))

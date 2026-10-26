@@ -445,18 +445,18 @@ def check_flags_5341(clock, mon):
 
 # ---------------------------------------------------------------- driver
 
-def check_clock(clock, checks, results=None):
-    """Run the selected checks on one clock. Returns True when all pass.
-    If results is a dict, it gets check -> pass/fail for each check that ran."""
-    if results is None:
-        results = {}
+def check_clock(clock, checks):
+    """Run the selected checks on one clock. Returns check -> pass/fail for
+    each check that ran; empty if the clock is not ready, is the wrong chip
+    or its configuration could not be read."""
+    results = {}
     name = clock.name
     try:
         if not check_ready(clock) or not check_identity(clock):
-            return False
+            return results
     except EXPECTED_ERRORS as exc:
         print("%-4s READ FAILED: %s" % (name, _format_error(exc)))
-        return False
+        return results
     profile = PROFILES[clock.CHIP]
     mon = None
     if set(checks) & {"status", "flags"}:
@@ -464,16 +464,14 @@ def check_clock(clock, checks, results=None):
             mon = profile["monitors"](clock)
         except EXPECTED_ERRORS as exc:
             print("%-4s config READ FAILED: %s" % (name, _format_error(exc)))
-            return False
-    ok = True
+            return results
     for check in checks:
         try:
             results[check] = bool(profile[check](clock, mon))
         except EXPECTED_ERRORS as exc:
             print("%-4s %s READ FAILED: %s" % (name, check, _format_error(exc)))
             results[check] = False
-        ok = results[check] and ok
-    return ok
+    return results
 
 
 CHECKS = ("id", "status", "flags")
@@ -513,9 +511,7 @@ def main():
     results = {}
     for name in names:
         print()
-        results[name] = {}
-        clock_ok = check_clock(reg.get_clock(name), checks, results[name])
-        print("%-4s result: %s" % (name, "OK" if clock_ok else "PROBLEMS FOUND"))
+        results[name] = check_clock(reg.get_clock(name), checks)
     return 0 if print_summary(names, checks, results) else 1
 
 

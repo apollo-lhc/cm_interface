@@ -138,9 +138,9 @@ class Si5341StatusTest(unittest.TestCase):
         clock = Si5341Clock(FakeUART(BOARD210_R0A), address=0x10, name="R0A")
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            ok = checks.check_clock(clock, list(checks.CHECKS))
+            results = checks.check_clock(clock, list(checks.CHECKS))
         text = out.getvalue()
-        self.assertTrue(ok, text)
+        self.assertEqual(results, dict.fromkeys(checks.CHECKS, True), text)
         self.assertIn("raw 0x000C-0x000D", text)
         self.assertIn("raw 0x000C-0x000D = C0 F0  locked", text)
         self.assertIn("reference IN0 (IN_SEL register), inputs enabled: IN0", text)
@@ -226,8 +226,8 @@ class WrongChipTest(unittest.TestCase):
         clock = Si5341Clock(FakeUART(regs), address=0x10, name="R0A")
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            ok = checks.check_clock(clock, list(checks.CHECKS))
-        self.assertFalse(ok)
+            results = checks.check_clock(clock, list(checks.CHECKS))
+        self.assertEqual(results, {})
         self.assertIn("WRONG CHIP", out.getvalue())
         self.assertNotIn("status:", out.getvalue())
 

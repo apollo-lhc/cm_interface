@@ -525,7 +525,7 @@ python -m cm_interface.tools.examples   # from the directory above cm_interface
 Or import individual functions:
 
 ```python
-from cm_interface.examples import example_disable_cdr_all_fireflies
+from cm_interface.tools.examples import example_disable_cdr_all_fireflies
 example_disable_cdr_all_fireflies()
 ```
 

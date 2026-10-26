@@ -237,7 +237,7 @@ def main():
     parser.add_argument("--snapshot", action="store_true",
                         help="also capture and print the 32-byte SNAPSHOT per page "
                              "(not a pure read; needs firmware with the SN device)")
-    add_out_dir_arg(parser, "one file per page, cm<boardid>_<supply>_<page>.txt,")
+    add_out_dir_arg(parser, "cm<boardid>_<supply>_<page>.txt, one file per page")
     add_common_args(parser)
     args = parser.parse_args()
     devices = selected_devices(parser, args, sorted(CORE_CONFIG.lga80d))

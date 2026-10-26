@@ -70,6 +70,11 @@ includes the workflow run number and commit ID. The binary package is
 register JSON maps. Install a downloaded binary RPM with
 `sudo dnf install ./python3-cm-interface-*.noarch.rpm`.
 
+The RPM also installs the command-line tools as `cm-<name>` (for example
+`cm-lga80d-dump --all`). The same tool runs from a checkout as
+`./tools/lga80d_dump.py --all`; the `cm-*` names exist only after the RPM is
+installed.
+
 ## Basic usage
 ```python
 from cm_interface.registry import Registry
