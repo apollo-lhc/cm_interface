@@ -9,7 +9,7 @@ board in front of them confirm that the datasheet-audit bugfixes
 (see `/nfs/cms/hw/wittich/int_test/cm-interface-datasheet-audit.md`) actually
 hold up against real modules.
 
-There is no MCU test here; `exercise_mcu.py` is the MCU hardware path.
+There is no MCU test here; `cm-exercise-mcu` is the MCU hardware path.
 
 **This suite is never run in CI** and is invisible to a plain
 `pytest cm_interface/tests/` invocation: `tests/hw/conftest.py` uses
@@ -136,7 +136,7 @@ The host has no UART0, so these are done by a person at the CLI console, on the
 known-good board, after the new firmware is flashed:
 
 1. Take an `SN` capture (`test_hw_lga80d_snapshot.py -s`, or
-   `lga80d_dump.py <SUPPLY> --snapshot`) and immediately run `snapshot <10*dev+page> 0`
+   `cm-lga80d-dump <SUPPLY> --snapshot`) and immediately run `snapshot <10*dev+page> 0`
    on the same supply and page. Fields should agree to rounding, apart from
    drift (about 1 C, a few hundredths of an amp).
 2. `stack_usage` and `taskinfo` before and after the captures: ProgCom (`PRGCM`)

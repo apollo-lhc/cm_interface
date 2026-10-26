@@ -638,7 +638,7 @@ class McuProtocolErrorTest(unittest.TestCase):
 
 class ExerciseMcuTest(unittest.TestCase):
     def test_run_section_degrades_runtime_error_to_a_warning(self):
-        from cm_interface import exercise_mcu
+        from cm_interface.tools import exercise_mcu
 
         def boom():
             raise RuntimeError("MCU map version mismatch")

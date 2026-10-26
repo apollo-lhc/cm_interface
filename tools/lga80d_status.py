@@ -8,16 +8,16 @@ or reconfigured.
 Bit meanings are from LGA80D_40A_dual_AppNote.pdf, "STATUS_*" command pages.
 
 Usage:
-    lga80d_status.py F1VCCINT1        # one device, both output pages
-    lga80d_status.py --all            # every LGA80D on the board
+    cm-lga80d-status F1VCCINT1        # one device, both output pages
+    cm-lga80d-status --all            # every LGA80D on the board
 """
 import argparse
 import os
 import sys
 
-# Permit direct execution from this package directory (as exercise_mcu.py does).
+# Permit direct execution from a checkout (./tools/NAME.py) without the RPM.
 if not __package__:
-    _package_dir = os.path.dirname(os.path.realpath(__file__))
+    _package_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
     _package_parent = os.path.dirname(_package_dir)
     if _package_parent not in sys.path:
         sys.path.insert(0, _package_parent)

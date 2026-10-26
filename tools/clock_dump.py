@@ -28,18 +28,18 @@ CBPro-computed tuning (LOS/OOF/LOL thresholds and windows, holdover,
 fastlock, loop bandwidth codes, phase adjust) is not read.
 
 Usage:
-    clock_dump.py R0A
-    clock_dump.py --all --out-dir DIR
-    clock_dump.py R0A --hw-rev 2
+    cm-clock-dump R0A
+    cm-clock-dump --all --out-dir DIR
+    cm-clock-dump R0A --hw-rev 2
 """
 import argparse
 import os
 import sys
 import time
 
-# Permit direct execution from this package directory (as exercise_mcu.py does).
+# Permit direct execution from a checkout (./tools/NAME.py) without the RPM.
 if not __package__:
-    _package_dir = os.path.dirname(os.path.realpath(__file__))
+    _package_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
     _package_parent = os.path.dirname(_package_dir)
     if _package_parent not in sys.path:
         sys.path.insert(0, _package_parent)
@@ -48,7 +48,7 @@ from collections import namedtuple
 
 from cm_interface.core_config import CORE_CONFIG
 from cm_interface.device.clock import DEVICE_READY_VALUE
-from cm_interface.lga80d_dump import board_info
+from cm_interface.tools.lga80d_dump import board_info
 from cm_interface.registry import Registry
 
 MAX_READ_BYTES = 4

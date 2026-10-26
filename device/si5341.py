@@ -21,7 +21,7 @@ __all__ = ["Si5341Clock", "Si5341Reg", "Si5341StatusBits"]
 class Si5341Reg(IntEnum):
     """Si5341 registers used by this package (Si5341/40 RM Rev 1.3, ch. 14).
 
-    Only what the code reads; clock_dump.py carries its own address tables.
+    Only what the code reads; tools/clock_dump.py carries its own address tables.
     """
     DEVICE_ID = 0x0002          # PN_BASE, 2 bytes little-endian
     STATUS = 0x000C             # SYSINCAL, LOSXAXB, LOSREF, LOL, SMBUS_TIMEOUT

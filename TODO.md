@@ -14,13 +14,13 @@ except where marked HW-verified. Delete an item when it lands.
   Open decision 3 in `FPGA_GENERIC_INTERFACE_PLAN.md` (`unsafe=True` opt-in vs warning).
 - **Rev2 Si5341 (R0A) alarm rules are only partly hardware-checked.** Board 210 (2026-10-16)
   confirmed hw rev 2, PN 0x5341, the status/flag decode and the dump layout on a healthy,
-  locked R0A (now the test fixture). The `clock_checks.py` expected-alarm rules (LOS on an
+  locked R0A (now the test fixture). The `cm-clock-checks` expected-alarm rules (LOS on an
   unselected input, FB_IN outside zero delay mode, pin-selected reference) are still from
   the reference manual only.
 
 ## LGA80D snapshot follow-ups
 
-`LGA80D.read_snapshot`, `lga80d_dump.py --snapshot` and the firmware `SN` device are
+`LGA80D.read_snapshot`, `cm-lga80d-dump --snapshot` and the firmware `SN` device are
 hardware-verified (2026-10-07: `tests/hw/test_hw_lga80d_snapshot.py` passed, manual CLI
 comparison, `stack_usage` and `log` checks OK). Not exercised: the short-block path (needs a
 temporary DEBUG firmware build) and a capture on an absent or NACKing supply. Snapshot bytes 12-13 are a copy of the temperature word on this board and are deliberately not decoded.
@@ -32,7 +32,7 @@ temporary DEBUG firmware build) and a capture on an absent or NACKing supply. Sn
   pushes Si5395 registers over `w CL` (16-bit `page<<8 | addr`, ProgCom writes the page
   register), so it is unaffected by the EEPROM address width below.
 - Add an MCU hardware test under `tests/hw/` if a repeatable one is wanted
-  (`exercise_mcu.py` is the only MCU hardware path today).
+  (`cm-exercise-mcu` is the only MCU hardware path today).
 
 ## Blocked on firmware or hardware
 

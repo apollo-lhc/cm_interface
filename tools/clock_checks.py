@@ -61,19 +61,19 @@ Si5341 (Si5341/40 Rev D RM Rev 1.3, chapter 14) differs:
   reference manual and have not been checked on a Rev2 board.
 
 Usage:
-    clock_checks.py                         # all checks, all clocks
-    clock_checks.py --check status          # one check
-    clock_checks.py --check flags --device R0A
-    clock_checks.py --hw-rev 2              # override the MCU's board revision
+    cm-clock-checks                         # all checks, all clocks
+    cm-clock-checks --check status          # one check
+    cm-clock-checks --check flags --device R0A
+    cm-clock-checks --hw-rev 2              # override the MCU's board revision
 """
 import argparse
 import os
 import sys
 from collections import namedtuple
 
-# Permit direct execution from this package directory (as exercise_mcu.py does).
+# Permit direct execution from a checkout (./tools/NAME.py) without the RPM.
 if not __package__:
-    _package_dir = os.path.dirname(os.path.realpath(__file__))
+    _package_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
     _package_parent = os.path.dirname(_package_dir)
     if _package_parent not in sys.path:
         sys.path.insert(0, _package_parent)

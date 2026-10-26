@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 Exercise the command-module MCU's ProgCom register area (``MC 0``) on real
 hardware, following ``MCU_REGISTER_MAP.md``.
@@ -12,11 +12,11 @@ confirm. ``--set-alarm-temp`` and ``--set-volt-threshold`` write the Config page
 (persisted to EEPROM) and need the same confirmation.
 
 Usage:
-    ./exercise_mcu.py [--dev-path /dev/ttyUL4] [--debug]
-    ./exercise_mcu.py --send-control CLEAR_ALARM_LATCHES [--yes]
-    ./exercise_mcu.py --power-cycle [--yes]
-    ./exercise_mcu.py --set-alarm-temp FPGA 85 [--yes]
-    ./exercise_mcu.py --set-volt-threshold 5 [--yes]
+    cm-exercise-mcu [--dev-path /dev/ttyUL4] [--debug]
+    cm-exercise-mcu --send-control CLEAR_ALARM_LATCHES [--yes]
+    cm-exercise-mcu --power-cycle [--yes]
+    cm-exercise-mcu --set-alarm-temp FPGA 85 [--yes]
+    cm-exercise-mcu --set-volt-threshold 5 [--yes]
 """
 
 import argparse
@@ -24,10 +24,9 @@ import os
 import sys
 import time
 
-# Permit direct execution from either the repository root (via its symlink)
-# or this package directory, without requiring an installation step.
+# Permit direct execution from a checkout (./tools/NAME.py) without the RPM.
 if not __package__:
-    _package_dir = os.path.dirname(os.path.realpath(__file__))
+    _package_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
     _package_parent = os.path.dirname(_package_dir)
     if _package_parent not in sys.path:
         sys.path.insert(0, _package_parent)

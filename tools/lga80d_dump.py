@@ -19,19 +19,19 @@ does not erase anything) and blocks the MCU's ProgCom task for ~70-400 ms. It ne
 with the SN device, so it is opt-in.
 
 Usage:
-    lga80d_dump.py F1VCCINT1
-    lga80d_dump.py F1VCCINT1 --page 0 --include-unconfirmed
-    lga80d_dump.py F1VCCINT1 --snapshot
-    lga80d_dump.py --all --out-dir DIR
+    cm-lga80d-dump F1VCCINT1
+    cm-lga80d-dump F1VCCINT1 --page 0 --include-unconfirmed
+    cm-lga80d-dump F1VCCINT1 --snapshot
+    cm-lga80d-dump --all --out-dir DIR
 """
 import argparse
 import os
 import sys
 import time
 
-# Permit direct execution from this package directory (as exercise_mcu.py does).
+# Permit direct execution from a checkout (./tools/NAME.py) without the RPM.
 if not __package__:
-    _package_dir = os.path.dirname(os.path.realpath(__file__))
+    _package_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
     _package_parent = os.path.dirname(_package_dir)
     if _package_parent not in sys.path:
         sys.path.insert(0, _package_parent)

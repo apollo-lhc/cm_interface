@@ -3,8 +3,8 @@ import contextlib
 import io
 import unittest
 
-from cm_interface import clock_checks as checks
-from cm_interface import clock_dump
+from cm_interface.tools import clock_checks as checks
+from cm_interface.tools import clock_dump
 from cm_interface.device.si5341 import Si5341Clock
 from cm_interface.device.si5395 import Clock
 

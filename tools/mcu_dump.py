@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """Dump the command-module MCU's ProgCom register pages (``MC 0``).
 
-READ ONLY: this runs the same page reads as ``exercise_mcu.py`` with no
+READ ONLY: this runs the same page reads as ``cm-exercise-mcu`` with no
 arguments (System, Power, Alarm, Config, Runtime, ADC, and the deferred
 persistent-log pages as a best effort) and has no write or Control-page
-path. Use ``exercise_mcu.py`` for those.
+path. Use ``cm-exercise-mcu`` for those.
 
 Uptime, RTC, heap/stack, the Power generation counter and the ADC values
 change on every read; exclude them when diffing two dumps.
 
 Usage:
-    mcu_dump.py
-    mcu_dump.py --out-dir DIR
+    cm-mcu-dump
+    cm-mcu-dump --out-dir DIR
 """
 import argparse
 import contextlib
@@ -20,14 +20,14 @@ import os
 import sys
 import time
 
-# Permit direct execution from this package directory (as exercise_mcu.py does).
+# Permit direct execution from a checkout (./tools/NAME.py) without the RPM.
 if not __package__:
-    _package_dir = os.path.dirname(os.path.realpath(__file__))
+    _package_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
     _package_parent = os.path.dirname(_package_dir)
     if _package_parent not in sys.path:
         sys.path.insert(0, _package_parent)
 
-from cm_interface.exercise_mcu import (
+from cm_interface.tools.exercise_mcu import (
     exercise_adc,
     exercise_alarm,
     exercise_config,
@@ -36,7 +36,7 @@ from cm_interface.exercise_mcu import (
     exercise_runtime,
     exercise_system,
 )
-from cm_interface.lga80d_dump import board_info
+from cm_interface.tools.lga80d_dump import board_info
 from cm_interface.registry import Registry
 
 SECTIONS = (

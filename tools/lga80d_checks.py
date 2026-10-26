@@ -27,18 +27,18 @@ Checks (select with --check; the default runs all three):
 Not covered: the scope measurement of EN against PG at turn-off.
 
 Usage:
-    lga80d_checks.py                              # all checks, all modules
-    lga80d_checks.py --check freq                 # one check
-    lga80d_checks.py --check temp --device F1VCCINT2
+    cm-lga80d-checks                              # all checks, all modules
+    cm-lga80d-checks --check freq                 # one check
+    cm-lga80d-checks --check temp --device F1VCCINT2
 """
 import argparse
 import os
 import sys
 import time
 
-# Permit direct execution from this package directory (as exercise_mcu.py does).
+# Permit direct execution from a checkout (./tools/NAME.py) without the RPM.
 if not __package__:
-    _package_dir = os.path.dirname(os.path.realpath(__file__))
+    _package_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
     _package_parent = os.path.dirname(_package_dir)
     if _package_parent not in sys.path:
         sys.path.insert(0, _package_parent)

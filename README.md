@@ -15,14 +15,9 @@ cm_interface/
 ├─ errors.py              # Exception hierarchy
 ├─ utils.py               # PMBus Linear11/Linear16 codecs (crc8/pack_uint16 are unused)
 ├─ registry.py            # Global Registry for board devices
-├─ examples.py            # Worked examples (see EXAMPLES.md)
-├─ exercise_mcu.py        # Exercise the MCU pages; writes/control prompt unless --yes
-├─ mcu_dump.py            # Read-only MCU page dump (--out-dir)
-├─ lga80d_dump.py         # LGA80D register dump script (--snapshot adds the SNAPSHOT read)
 ├─ MCU_REGISTER_MAP.md    # MCU wire contract (with MCU_Reg.h)
 ├─ TODO.md                # Open, deferred and dropped cm_interface work
 ├─ FUTURE_IDEAS.md        # Ideas not yet planned
-├─ lga80d_status.py       # Read-only decoded LGA80D status registers (one device or --all)
 ├─ core_config.py         # Fixed UART addresses for clocks and LGA80D
 ├─ firefly_presets.py     # Board-specific Firefly layouts (TF, IT-DTC)
 ├─ device/
@@ -35,6 +30,18 @@ cm_interface/
 │  ├─ lga80d.py           # LGA80D DC-DC converter implementation
 │  ├─ mcu.py              # Command-module MCU register interface
 │  └─ fpga.py             # Raw F1/F2 generic register interface
+├─ tools/                 # Command-line tools: run ./tools/NAME.py from a checkout; the RPM installs cm-<name>
+│  ├─ clock_checks.py     # cm-clock-checks: read-only Si5395/Si5341 status checks
+│  ├─ clock_dump.py       # cm-clock-dump: clock register dump (--out-dir)
+│  ├─ exercise_mcu.py     # cm-exercise-mcu: exercise the MCU pages; writes/control prompt unless --yes
+│  ├─ ff_status.py        # cm-ff-status: Firefly status summary
+│  ├─ lga80d_checks.py    # cm-lga80d-checks: read-only LGA80D frequency/temperature/timing checks
+│  ├─ lga80d_dump.py      # cm-lga80d-dump: LGA80D register dump (--snapshot adds the SNAPSHOT read)
+│  ├─ lga80d_status.py    # cm-lga80d-status: decoded LGA80D status registers (one device or --all)
+│  ├─ mcu_dump.py         # cm-mcu-dump: read-only MCU page dump (--out-dir)
+│  ├─ mcu_set_rtc.py      # cm-mcu-set-rtc: set the MCU RTC from the host clock
+│  ├─ vccint_2phase.py    # VCCINT 2-phase experiment (not installed in /usr/bin)
+│  └─ examples.py         # Worked examples (see EXAMPLES.md; not installed in /usr/bin)
 ├─ tests/                 # FakeUART unit tests; tests/hw/ is the opt-in hardware suite
 └─ registers/
    ├─ si5395.json         # Si5395 register map (page-based)
@@ -134,7 +141,7 @@ print(rt.heap_free_bytes, rt.system_stack_untouched_words, rt.fpga_done)
 print(rt.rtc.isoformat())              # "unset" when the RTC is not valid
 
 # Needs map minor >= 4 (RTC_WRITE). Sets host local wall-clock time; the RTC
-# has no time zone. Refuses times before 2026-01-01. CLI: mcu_set_rtc.py
+# has no time zone. Refuses times before 2026-01-01. CLI: cm-mcu-set-rtc
 mcu.set_rtc()
 
 mcu.send_control(McuControlCommand.CLEAR_ALARM_LATCHES)
@@ -289,7 +296,7 @@ polling (up to ~0.7 s seen on hardware), and much longer if the I2C bus stays co
 the UART timeout is not changed. Failures (including old firmware without `SN`, which answers
 `e invalid device type`) raise `RegisterAccessError`. A new unit holds a
 factory-qualification fault until it is erased with `reset_snapshot` (output off).
-`print(snapshot)` (or `snapshot.format_lines()`) gives a readable summary; `lga80d_dump.py --snapshot`
+`print(snapshot)` (or `snapshot.format_lines()`) gives a readable summary; `cm-lga80d-dump --snapshot`
 uses it. `snapshot.is_stored_record` reads the flash status byte (byte 22, undocumented, so
 inferred from the failure-analysis notes): `True` for `0x00` (a fault record is stored, and the
 values are that record, not live data), `False` for `0xFF` (erased, values are live), `None` for
@@ -337,7 +344,7 @@ bare `RuntimeError`s, so a caller that caught `RuntimeError` for them must now
 catch `CMError` (or `McuProtocolError`). `Registry.reset_all_lga80d_snapshots`
 still raises `RuntimeError` for its `force=True` and power-state checks.
 
-The worked `examples.py` runner handles these expected conditions: missing
+The worked `tools/examples.py` runner handles these expected conditions: missing
 preset entries are reported as skips, per-device communication failures do not
 stop iteration, and an error in one example does not prevent later examples
 from running. It exits with status 1 if an entire example is stopped by an

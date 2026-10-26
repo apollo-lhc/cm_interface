@@ -5,9 +5,9 @@ import tempfile
 import types
 import unittest
 
-from cm_interface import mcu_dump
+from cm_interface.tools import mcu_dump
 from cm_interface.device.mcu import MCU, McuCapability, McuPage, SystemReg
-from cm_interface.lga80d_dump import board_info
+from cm_interface.tools.lga80d_dump import board_info
 
 ALL_CAPS = (McuCapability.SYSTEM | McuCapability.POWER | McuCapability.ALARMS
             | McuCapability.ADC | McuCapability.PERSISTENT_LOG

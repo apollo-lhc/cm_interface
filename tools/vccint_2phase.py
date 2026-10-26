@@ -58,22 +58,22 @@ but still refuses unless the MCU power state machine reads POWER_OFF. Same for
 --restore.
 
 Usage:
-    vccint_2phase.py --fpga 2        # read-only: show current state + plan
-    vccint_2phase.py --fpga 2 --apply
-    vccint_2phase.py --fpga 1        # read-only
-    vccint_2phase.py --fpga 1 --apply
-    vccint_2phase.py --fpga 1 --apply --drop-rail 20   # also move FnVCCINT2 to rail 20
-    vccint_2phase.py --fpga 1 --restore            # read-only: restore plan
-    vccint_2phase.py --fpga 1 --restore --apply
+    python -m cm_interface.tools.vccint_2phase --fpga 2        # read-only: show current state + plan
+    python -m cm_interface.tools.vccint_2phase --fpga 2 --apply
+    python -m cm_interface.tools.vccint_2phase --fpga 1        # read-only
+    python -m cm_interface.tools.vccint_2phase --fpga 1 --apply
+    python -m cm_interface.tools.vccint_2phase --fpga 1 --apply --drop-rail 20   # also move FnVCCINT2 to rail 20
+    python -m cm_interface.tools.vccint_2phase --fpga 1 --restore            # read-only: restore plan
+    python -m cm_interface.tools.vccint_2phase --fpga 1 --restore --apply
 """
 import argparse
 import os
 import sys
 import time
 
-# Permit direct execution from this package directory (as lga80d_status.py does).
+# Permit direct execution from a checkout (./tools/NAME.py) without the RPM.
 if not __package__:
-    _package_dir = os.path.dirname(os.path.realpath(__file__))
+    _package_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
     _package_parent = os.path.dirname(_package_dir)
     if _package_parent not in sys.path:
         sys.path.insert(0, _package_parent)
