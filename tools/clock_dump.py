@@ -50,7 +50,7 @@ from collections import namedtuple
 from cm_interface.core_config import CORE_CONFIG
 from cm_interface.device.clock import DEVICE_READY_VALUE
 from cm_interface.tools._common import (add_common_args, add_device_args, add_out_dir_arg,
-                                       board_info, make_registry, out_path,
+                                       board_info, make_registry, out_path, power_is_on,
                                        selected_devices, write_lines)
 
 MAX_READ_BYTES = 4
@@ -508,6 +508,8 @@ def main():
     names = selected_devices(parser, args, list(CORE_CONFIG.clocks))
 
     reg = make_registry(args, hw_rev=args.hw_rev)
+    if not power_is_on(reg):
+        return 1
     board_lines, board_id = board_info(reg)
     if args.hw_rev is not None:
         board_lines = board_lines + ["  clocks for hw rev %d (--hw-rev)" % args.hw_rev]

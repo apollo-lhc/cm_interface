@@ -33,7 +33,7 @@ if not __package__:
 
 from cm_interface.device.firefly import Firefly4, FireflyReg, FireflyRx, FireflyTx
 from cm_interface.tools._common import (add_common_args, add_device_args, add_out_dir_arg,
-                                       make_registry, out_path, selected_devices,
+                                       make_registry, out_path, power_is_on, selected_devices,
                                        write_lines)
 
 # Firmware ff_moni2c_addrs[] (cm_mcu LocalTasks.c) by board revision; the
@@ -212,6 +212,8 @@ def main():
         wanted = None  # this board revision's slots, not every revision's
 
     reg = make_registry(args)
+    if not power_is_on(reg):
+        return 1
     info = reg.mcu.system_info
     if info.ff_present_mask is None:
         print("MCU map minor %d has no Firefly masks (needs >= 1)" % info.map_minor)

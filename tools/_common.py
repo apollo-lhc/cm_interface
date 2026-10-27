@@ -9,6 +9,7 @@ without it, everything is printed. Checks end with print_summary().
 import os
 import sys
 
+from cm_interface.device.mcu import PowerFsmState
 from cm_interface.registry import Registry
 
 DEFAULT_DEV_PATH = "/dev/ttyUL4"
@@ -86,6 +87,22 @@ def board_info(reg):
         "  hw rev:    %d" % info.hardware_revision,
         "  firmware:  %s" % info.git_version,
     ], info.board_id
+
+
+def power_is_on(reg):
+    """Return False, after printing why, if the MCU power state machine is not
+    in POWER_ON. If the state can't be read (e.g. old firmware), print a
+    warning and return True so the tool still runs."""
+    try:
+        state = reg.get_mcu().read_power().fsm_state
+    except Exception as exc:
+        print("MCU power state: unknown (%s); continuing" % exc)
+        return True
+    if state != PowerFsmState.POWER_ON:
+        print("power is off: MCU power state machine is %s, not POWER_ON; "
+              "nothing read" % state.name)
+        return False
+    return True
 
 
 def _cell(row, check):

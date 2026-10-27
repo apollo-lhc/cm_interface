@@ -84,7 +84,7 @@ from cm_interface.device.si5341 import Si5341Reg
 from cm_interface.device.si5395 import Si5395Reg
 from cm_interface.errors import ClockIdentityError, CMError
 from cm_interface.tools._common import (add_common_args, add_device_args, make_registry,
-                                       print_summary, selected_devices)
+                                       power_is_on, print_summary, selected_devices)
 
 EXPECTED_ERRORS = (CMError, OSError, TimeoutError, ValueError, RuntimeError)
 
@@ -498,6 +498,8 @@ def main():
     checks = [c for c in CHECKS if c in (args.check or CHECKS)]
     names = selected_devices(parser, args, list(CORE_CONFIG.clocks), default_all=True)
     reg = make_registry(args, hw_rev=args.hw_rev)
+    if not power_is_on(reg):
+        return 1
     try:
         clocks = reg.clocks
     except EXPECTED_ERRORS as exc:
