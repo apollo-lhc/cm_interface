@@ -49,9 +49,9 @@ from collections import namedtuple
 
 from cm_interface.core_config import CORE_CONFIG
 from cm_interface.device.clock import DEVICE_READY_VALUE
-from cm_interface.tools._common import (add_common_args, add_device_args, add_out_dir_arg,
-                                       board_info, make_registry, out_path,
-                                       selected_devices, write_lines)
+from cm_interface.tools._common import (add_common_args, add_device_args, add_force_arg,
+                                       add_out_dir_arg, board_info, make_registry, out_path,
+                                       power_info, power_is_on, selected_devices, write_lines)
 
 MAX_READ_BYTES = 4
 
@@ -503,12 +503,17 @@ def main():
     parser.add_argument("--hw-rev", type=int, metavar="N",
                         help="board revision to assume instead of the MCU's "
                              "HARDWARE_REVISION (e.g. EEPROM not programmed)")
+    add_force_arg(parser)
     add_common_args(parser)
     args = parser.parse_args()
     names = selected_devices(parser, args, list(CORE_CONFIG.clocks))
 
     reg = make_registry(args, hw_rev=args.hw_rev)
+    power_text, power_state = power_info(reg)
+    if not power_is_on(power_state, args.force):
+        return 1
     board_lines, board_id = board_info(reg)
+    board_lines = board_lines + ["  power:     %s" % power_text]
     if args.hw_rev is not None:
         board_lines = board_lines + ["  clocks for hw rev %d (--hw-rev)" % args.hw_rev]
     try:
