@@ -36,8 +36,8 @@ install -m 0644 tools/*.py %{buildroot}%{python3_sitelib}/cm_interface/tools/
 # vccint_2phase rewrites LGA80D rail configuration; keep it out of the RPM.
 rm %{buildroot}%{python3_sitelib}/cm_interface/tools/vccint_2phase.py
 # Each tool module gets a cm-<name> launcher (underscores become dashes).
-for tool in clock_checks clock_dump exercise_mcu ff_status lga80d_checks \
-            lga80d_dump lga80d_status mcu_dump mcu_set_rtc; do
+for tool in clock_checks clock_dump exercise_mcu ff_cdr ff_rx_eq ff_status \
+            lga80d_checks lga80d_dump lga80d_status mcu_dump mcu_set_rtc; do
     launcher=%{buildroot}%{_bindir}/cm-$(echo "$tool" | tr _ -)
     printf '#!%{__python3}\nimport sys\nfrom cm_interface.tools.%s import main\nsys.exit(main())\n' \
         "$tool" > "$launcher"

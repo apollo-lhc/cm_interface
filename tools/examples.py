@@ -4,8 +4,15 @@ Worked examples for cm_interface hardware control.
 
 This module demonstrates common operations for managing Si5395 clocks,
 Firefly optical transceivers, and LGA80D DC-DC converters.
+
+Running it runs every example against the board, with the TF Firefly preset.
+NOT READ ONLY: the first two examples disable CDR on Fireflies.
+
+Usage:
+    python -m cm_interface.tools.examples [--dev-path DEV] [--debug]
 """
 
+import argparse
 import os
 import sys
 
@@ -20,6 +27,7 @@ from cm_interface.registry import Registry
 from cm_interface.device.si5395 import Si5395Reg
 from cm_interface.device.firefly import Firefly12, Firefly4, FireflyTx, FireflyRx
 from cm_interface.errors import CMError
+from cm_interface.tools._common import add_common_args
 
 
 EXPECTED_HARDWARE_ERRORS = (CMError, OSError, TimeoutError, ValueError)
@@ -69,7 +77,7 @@ def example_disable_cdr_all_fireflies():
     print("=" * 70)
     
     # Initialize registry with TF (Track Finder) configuration
-    reg = Registry(setup='tf', dev_path='/dev/ttyUSB2')
+    reg = Registry(setup='tf', dev_path='/dev/ttyUL4')
     
     # Iterate over all firefly devices
     for loc, device in reg.fireflies.items():
@@ -104,7 +112,7 @@ def example_selective_cdr_control():
     print("Example 2: Selective CDR Control")
     print("=" * 70)
     
-    reg = Registry(setup='tf', dev_path='/dev/ttyUSB2')
+    reg = Registry(setup='tf', dev_path='/dev/ttyUL4')
     
     # Disable CDR only on channels 1-4 of F1_5 (4-channel XCVR)
     f1_5 = _get_configured_firefly(reg, 'F1_5')
@@ -151,7 +159,7 @@ def example_cdr_status_check():
     print("Example 3: CDR Status Check")
     print("=" * 70)
     
-    reg = Registry(setup='tf', dev_path='/dev/ttyUSB2')
+    reg = Registry(setup='tf', dev_path='/dev/ttyUL4')
     
     # Check status for F2_5 (4-channel XCVR)
     f2_5 = _get_configured_firefly(reg, 'F2_5')
@@ -185,7 +193,7 @@ def example_clock_monitoring():
     print("Example 4: Clock Status Monitoring")
     print("=" * 70)
     
-    reg = Registry(setup='tf', dev_path='/dev/ttyUSB2')
+    reg = Registry(setup='tf', dev_path='/dev/ttyUL4')
     
     # Iterate over all clocks
     for name, clock in reg.clocks.items():
@@ -227,7 +235,7 @@ def example_lga80d_monitoring():
     print("Example 5: LGA80D Voltage Monitoring")
     print("=" * 70)
     
-    reg = Registry(setup='tf', dev_path='/dev/ttyUSB2')
+    reg = Registry(setup='tf', dev_path='/dev/ttyUL4')
     
     # Iterate over all LGA80D devices
     for name, lga in reg.lga80d.items():
@@ -275,7 +283,7 @@ def example_system_status_report():
     print("Example 6: Complete System Status Report")
     print("=" * 70)
     
-    reg = Registry(setup='tf', dev_path='/dev/ttyUSB2')
+    reg = Registry(setup='tf', dev_path='/dev/ttyUL4')
     
     print(f"\nRegistry initialized with TF configuration")
     print(f"  Clocks: {len(reg.clocks)}")
@@ -315,7 +323,7 @@ def example_firefly_identification():
     print("Example 7: Firefly Device Identification")
     print("=" * 70)
     
-    reg = Registry(setup='tf', dev_path='/dev/ttyUSB2')
+    reg = Registry(setup='tf', dev_path='/dev/ttyUL4')
     
     # Group devices by type
     xcvr_4ch = []
@@ -366,7 +374,7 @@ def example_register_access_patterns():
     print("Example 8: Register Access Patterns")
     print("=" * 70)
     
-    reg = Registry(setup='tf', dev_path='/dev/ttyUSB2')
+    reg = Registry(setup='tf', dev_path='/dev/ttyUL4')
     clock = reg.get_clock('R0B')  # Si5395 on every board revision
     
     print("\nThree ways to read the LOL status register:")
@@ -395,6 +403,15 @@ def example_register_access_patterns():
 
 def main():
     """Run every example, continuing past expected hardware failures."""
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    add_common_args(parser)
+    args = parser.parse_args()
+    # Registry is a singleton: this first creation fixes the UART for every
+    # example, whatever dev_path the examples themselves pass.
+    Registry(setup='tf', dev_path=args.dev_path,
+             debug=sys.stdout if args.debug else None)
+
     print("\n")
     print("╔" + "=" * 68 + "╗")
     print("║" + " " * 15 + "CM Interface Worked Examples" + " " * 25 + "║")

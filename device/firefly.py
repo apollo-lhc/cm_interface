@@ -43,6 +43,17 @@ class _FireflyBase(Device):
     def _decode_response(self, raw: bytes) -> bytes:
         return self._decode_ascii_response(raw)
 
+    def write_reg(self, reg: int, data: bytes) -> None:
+        """Write ``data`` one byte per transaction: the MCU's ProgCom ``FF``
+        write takes exactly one data byte. A multi-byte write is therefore
+        not atomic."""
+        if (reg & 0xFF) + len(data) > 0x100:
+            raise ValueError(
+                f"write of {len(data)} bytes at 0x{reg:04X} crosses a page boundary"
+            )
+        for i, value in enumerate(data):
+            super().write_reg(reg + i, bytes([value]))
+
     @property
     def temperature(self) -> int:
         """Return the module temperature in signed integer degrees Celsius."""
@@ -142,8 +153,9 @@ class _FireflyBase(Device):
                     f"invalid firefly channel: {ch!r} (must be an int 1-{max_channel})"
                 )
 
-    def _disable_cdr_12ch(self, base_reg: int, channels=None) -> None:
-        """Clear the requested channels' CDR-enable bits on a 12-channel device.
+    def _set_cdr_12ch(self, base_reg: int, channels, enable: bool) -> None:
+        """Set or clear the requested channels' CDR-enable bits on a 12-channel
+        device.
 
         ``base_reg`` and ``base_reg + 1`` together hold a 12-bit mask: the low
         nibble of ``base_reg`` covers channels 9-12, and ``base_reg + 1``
@@ -159,14 +171,55 @@ class _FireflyBase(Device):
         hi, lo = self.read_reg(base_reg, size=2)
         mask = ((hi & 0x0F) << 8) | lo
         for ch in channels:
-            mask &= ~(1 << (ch - 1))
+            if enable:
+                mask |= 1 << (ch - 1)
+            else:
+                mask &= ~(1 << (ch - 1))
         new_hi = (hi & 0xF0) | ((mask >> 8) & 0x0F)
         new_lo = mask & 0xFF
         self.write_reg(base_reg, bytes([new_hi, new_lo]))
 
+    @staticmethod
+    def _nibble_position(index: int) -> Tuple[int, int]:
+        """(byte offset, shift) of the index-th nibble, high nibble first."""
+        return index // 2, 4 if index % 2 == 0 else 0
+
+    def _read_nibbles(self, reg: int, order: list, channels=None) -> dict:
+        """Return {channel: 4-bit value} from a packed nibble field. ``order``
+        lists the channel held by each nibble, starting at ``reg``'s high
+        nibble."""
+        channels = self._normalize_channels(channels)
+        if channels is None:
+            channels = sorted(order)
+        self._validate_channels(channels, len(order))
+        raw = self.read_block(reg, len(order) // 2)
+        result = {}
+        for ch in channels:
+            byte, shift = self._nibble_position(order.index(ch))
+            result[ch] = (raw[byte] >> shift) & 0xF
+        return result
+
+    def _write_nibbles(self, reg: int, order: list, value: int, channels=None) -> None:
+        """Set the requested channels' nibbles (default: all) to ``value``,
+        preserving the others; writes only the bytes that change."""
+        channels = self._normalize_channels(channels)
+        if channels is None:
+            channels = sorted(order)
+        self._validate_channels(channels, len(order))
+        if not isinstance(value, int) or not 0 <= value <= 0xF:
+            raise ValueError(f"nibble value must be an int 0-15, got {value!r}")
+        raw = self.read_block(reg, len(order) // 2)
+        new = bytearray(raw)
+        for ch in channels:
+            byte, shift = self._nibble_position(order.index(ch))
+            new[byte] = (new[byte] & ~(0xF << shift) & 0xFF) | (value << shift)
+        for i, (old, updated) in enumerate(zip(raw, new)):
+            if old != updated:
+                self.write_reg(reg + i, bytes([updated]))
+
     def _cdr_status_12ch(self, base_reg: int, channels=None) -> int:
         """Return a 12-bit mask (bit0=ch1 .. bit11=ch12) from a 2-byte status
-        register laid out like :meth:`_disable_cdr_12ch`, optionally
+        register laid out like :meth:`_set_cdr_12ch`, optionally
         restricted to ``channels``."""
         channels = self._normalize_channels(channels)
         if channels is not None:
@@ -226,7 +279,17 @@ class FireflyTx(_FireflyBase):
             Channel number(s) (1-12). Default: all channels. Invalid
             channels raise ``ValueError`` before any UART transaction.
         """
-        self._disable_cdr_12ch(self.Reg.CDR_ENABLE_BASE, channels)
+        self._set_cdr_12ch(self.Reg.CDR_ENABLE_BASE, channels, enable=False)
+
+    def enable_cdr(self, channels: list = None) -> None:
+        """Enable CDR on specified channels (default: all 12); see
+        :meth:`disable_cdr`."""
+        self._set_cdr_12ch(self.Reg.CDR_ENABLE_BASE, channels, enable=True)
+
+    def get_cdr_enable(self, channels: list = None) -> int:
+        """Return the CDR enable mask: bit0=ch1 .. bit11=ch12, 1 = enabled,
+        optionally restricted to ``channels``."""
+        return self._cdr_status_12ch(self.Reg.CDR_ENABLE_BASE, channels)
 
     def get_cdr_status(self, channels: list = None) -> int:
         """Get CDR Loss of Lock status.
@@ -305,7 +368,17 @@ class FireflyRx(_FireflyBase):
             Channel number(s) (1-12). Default: all channels. Invalid
             channels raise ``ValueError`` before any UART transaction.
         """
-        self._disable_cdr_12ch(self.Reg.CDR_ENABLE_BASE, channels)
+        self._set_cdr_12ch(self.Reg.CDR_ENABLE_BASE, channels, enable=False)
+
+    def enable_cdr(self, channels: list = None) -> None:
+        """Enable CDR on specified channels (default: all 12); see
+        :meth:`disable_cdr`."""
+        self._set_cdr_12ch(self.Reg.CDR_ENABLE_BASE, channels, enable=True)
+
+    def get_cdr_enable(self, channels: list = None) -> int:
+        """Return the CDR enable mask: bit0=ch1 .. bit11=ch12, 1 = enabled,
+        optionally restricted to ``channels``."""
+        return self._cdr_status_12ch(self.Reg.CDR_ENABLE_BASE, channels)
 
     def get_cdr_status(self, channels: list = None) -> int:
         """Get CDR Loss of Lock status.
@@ -322,6 +395,30 @@ class FireflyRx(_FireflyBase):
             channel.
         """
         return self._cdr_status_12ch(self.Reg.CDR_LOL_STATUS_BASE, channels)
+
+    # Tables 43/44: the first byte's high nibble is Rx11 (channel 12), down
+    # to the last byte's low nibble, Rx00 (channel 1).
+    NIBBLE_ORDER = list(range(12, 0, -1))
+    # Raw codes: swing 80 mV + 76 mV/step, 7-15 = 612 mV (default 4 = 384 mV);
+    # pre-emphasis 4.8 %/step of amplitude, 7-15 = 33.6 % (default 2 = 9.6 %).
+    AMPLITUDE_CODES = {code: "%d mV" % (80 + 76 * min(code, 7)) for code in range(16)}
+    PREEMPHASIS_CODES = {code: "%.1f %%" % (4.8 * min(code, 7)) for code in range(16)}
+
+    def get_output_amplitude(self, channels: list = None) -> dict:
+        """Return {channel: raw 4-bit output swing code} (Table 43)."""
+        return self._read_nibbles(self.Reg.RX_OUTPUT_AMP, self.NIBBLE_ORDER, channels)
+
+    def set_output_amplitude(self, value: int, channels: list = None) -> None:
+        """Set the output swing code (0-15) on channels (default: all 12)."""
+        self._write_nibbles(self.Reg.RX_OUTPUT_AMP, self.NIBBLE_ORDER, value, channels)
+
+    def get_output_preemphasis(self, channels: list = None) -> dict:
+        """Return {channel: raw 4-bit output pre-emphasis code} (Table 44)."""
+        return self._read_nibbles(self.Reg.RX_DEEMPHASIS, self.NIBBLE_ORDER, channels)
+
+    def set_output_preemphasis(self, value: int, channels: list = None) -> None:
+        """Set the output pre-emphasis code (0-15) on channels (default: all 12)."""
+        self._write_nibbles(self.Reg.RX_DEEMPHASIS, self.NIBBLE_ORDER, value, channels)
 
     def print_status(self) -> None:
         status = self.read_reg(self.Reg.STATUS)[0] if hasattr(self.Reg, 'STATUS') else 0
@@ -392,6 +489,10 @@ class Firefly4(_FireflyBase):
         TEMP_MASK = 0x67  # Byte 103
         VCC_MASK = 0x68  # Byte 104
         PAGE_SELECT = 0x7F
+        # Upper page 03h, packed as page << 8 | address: the MCU selects the
+        # page and accesses the register under one I2C semaphore hold.
+        RX_OUTPUT_PREEMPHASIS = 0x03EC  # Bytes 236-237 (Table 48)
+        RX_OUTPUT_AMP = 0x03EE          # Bytes 238-239 (Table 49)
 
     @property
     def status_summary(self) -> int:
@@ -437,25 +538,58 @@ class Firefly4(_FireflyBase):
         rx : bool, optional
             Disable CDR on Rx side. Default: True.
         """
+        self._set_cdr(channels, tx, rx, enable=False)
+
+    def enable_cdr(self, channels: list = None, tx: bool = True, rx: bool = True) -> None:
+        """Enable CDR on specified channels; see :meth:`disable_cdr`."""
+        self._set_cdr(channels, tx, rx, enable=True)
+
+    def _set_cdr(self, channels, tx: bool, rx: bool, enable: bool) -> None:
         channels = self._normalize_channels(channels)
         if channels is None:
             channels = [1, 2, 3, 4]
         self._validate_channels(channels, 4)
 
-        # Read current CDR enable byte
         cdr_enable = self.read_reg(self.Reg.CDR_ENABLE)[0]
-
-        # Clear bits for specified channels
+        bits = 0
         for ch in channels:
             if tx:
-                # Tx channels: bits 4-7 (Tx1=bit4, Tx4=bit7)
-                cdr_enable &= ~(1 << (ch + 3))
+                bits |= 1 << (ch + 3)  # Tx1=bit4 .. Tx4=bit7
             if rx:
-                # Rx channels: bits 0-3 (Rx1=bit0, Rx4=bit3)
-                cdr_enable &= ~(1 << (ch - 1))
-
-        # Write back
+                bits |= 1 << (ch - 1)  # Rx1=bit0 .. Rx4=bit3
+        cdr_enable = (cdr_enable | bits) if enable else (cdr_enable & ~bits)
         self.write_reg(self.Reg.CDR_ENABLE, bytes([cdr_enable]))
+
+    # Tables 48/49: the first byte's high nibble is Rx1, down to the second
+    # byte's low nibble, Rx4.
+    NIBBLE_ORDER = [1, 2, 3, 4]
+    # Codes not listed are reserved and rejected by the setters.
+    AMPLITUDE_CODES = {0: "300 mV", 1: "450 mV", 2: "600 mV", 3: "900 mV"}
+    PREEMPHASIS_CODES = {0: "0 dB", 1: "1 dB", 2: "2 dB", 3: "3 dB", 4: "4 dB",
+                         5: "5 dB", 6: "6 dB", 7: "7.5 dB"}
+
+    def get_output_amplitude(self, channels: list = None) -> dict:
+        """Return {channel: raw 4-bit Rx output amplitude code} (Table 49)."""
+        return self._read_nibbles(self.Reg.RX_OUTPUT_AMP, self.NIBBLE_ORDER, channels)
+
+    def set_output_amplitude(self, value: int, channels: list = None) -> None:
+        """Set the Rx output amplitude code (0-3) on channels (default: all 4).
+        The datasheet calls this a global parameter for the four channels,
+        so per-channel values may not take effect independently."""
+        if value not in self.AMPLITUDE_CODES:
+            raise ValueError(f"x4 amplitude code must be 0-3, got {value!r}")
+        self._write_nibbles(self.Reg.RX_OUTPUT_AMP, self.NIBBLE_ORDER, value, channels)
+
+    def get_output_preemphasis(self, channels: list = None) -> dict:
+        """Return {channel: raw 4-bit Rx output de-emphasis code} (Table 48)."""
+        return self._read_nibbles(self.Reg.RX_OUTPUT_PREEMPHASIS, self.NIBBLE_ORDER, channels)
+
+    def set_output_preemphasis(self, value: int, channels: list = None) -> None:
+        """Set the Rx output de-emphasis code (0-7) on channels (default: all 4)."""
+        if value not in self.PREEMPHASIS_CODES:
+            raise ValueError(f"x4 pre-emphasis code must be 0-7, got {value!r}")
+        self._write_nibbles(self.Reg.RX_OUTPUT_PREEMPHASIS, self.NIBBLE_ORDER, value,
+                            channels)
 
     def get_cdr_status(self, channels: list = None) -> dict:
         """Get CDR enable status for channels.

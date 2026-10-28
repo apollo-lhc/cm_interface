@@ -83,8 +83,9 @@ from cm_interface.device.clock import DEVICE_READY_VALUE
 from cm_interface.device.si5341 import Si5341Reg
 from cm_interface.device.si5395 import Si5395Reg
 from cm_interface.errors import ClockIdentityError, CMError
-from cm_interface.tools._common import (add_common_args, add_device_args, make_registry,
-                                       power_is_on, print_summary, selected_devices)
+from cm_interface.tools._common import (add_common_args, add_device_args, add_force_arg,
+                                       make_registry, power_info, power_is_on, print_summary,
+                                       selected_devices)
 
 EXPECTED_ERRORS = (CMError, OSError, TimeoutError, ValueError, RuntimeError)
 
@@ -492,13 +493,16 @@ def main():
     parser.add_argument("--hw-rev", type=int, metavar="N",
                         help="board revision to assume instead of the MCU's "
                              "HARDWARE_REVISION (e.g. EEPROM not programmed)")
+    add_force_arg(parser)
     add_common_args(parser)
     args = parser.parse_args()
 
     checks = [c for c in CHECKS if c in (args.check or CHECKS)]
     names = selected_devices(parser, args, list(CORE_CONFIG.clocks), default_all=True)
     reg = make_registry(args, hw_rev=args.hw_rev)
-    if not power_is_on(reg):
+    power_text, power_state = power_info(reg)
+    print("MCU power state: %s" % power_text)
+    if not power_is_on(power_state, args.force):
         return 1
     try:
         clocks = reg.clocks

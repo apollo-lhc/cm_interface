@@ -9,7 +9,7 @@ without it, everything is printed. Checks end with print_summary().
 import os
 import sys
 
-from cm_interface.device.mcu import PowerFsmState
+from cm_interface.device.mcu import PowerFlags, PowerFsmState
 from cm_interface.registry import Registry
 
 DEFAULT_DEV_PATH = "/dev/ttyUL4"
@@ -89,20 +89,42 @@ def board_info(reg):
     ], info.board_id
 
 
-def power_is_on(reg):
-    """Return False, after printing why, if the MCU power state machine is not
-    in POWER_ON. If the state can't be read (e.g. old firmware), print a
-    warning and return True so the tool still runs."""
+def add_force_arg(parser):
+    parser.add_argument("--force", action="store_true",
+                        help="read even if the MCU power state machine is not POWER_ON")
+
+
+def power_info(reg):
+    """Return (text, state): the MCU power state machine's state, with any
+    latched fault flags, for headers, and the PowerFsmState or None if it
+    can't be read (e.g. old firmware). Never prints."""
     try:
-        state = reg.get_mcu().read_power().fsm_state
+        power = reg.get_mcu().read_power()
     except Exception as exc:
-        print("MCU power state: unknown (%s); continuing" % exc)
+        return "unavailable (%s)" % exc, None
+    latched = [f.name for f in (PowerFlags.POWER_FAULT_LATCH, PowerFlags.ALARM_SHUTDOWN_LATCH)
+               if power.flags & f]
+    text = power.fsm_state.name
+    if latched:
+        text += "  (latched: %s)" % ", ".join(latched)
+    return text, power.fsm_state
+
+
+def power_is_on(state, force=False):
+    """Return False, after printing why, if state (from power_info) is not
+    POWER_ON and force is not set. An unreadable state (None) lets the tool run."""
+    if state is None:
+        print("MCU power state: unknown; reading anyway")
         return True
-    if state != PowerFsmState.POWER_ON:
-        print("power is off: MCU power state machine is %s, not POWER_ON; "
-              "nothing read" % state.name)
-        return False
-    return True
+    if state == PowerFsmState.POWER_ON:
+        return True
+    if force:
+        print("WARNING: MCU power state machine is %s, not POWER_ON; "
+              "reading anyway (--force)" % state.name)
+        return True
+    print("power is off: MCU power state machine is %s, not POWER_ON; "
+          "nothing read (--force to read anyway)" % state.name)
+    return False
 
 
 def _cell(row, check):

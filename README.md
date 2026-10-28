@@ -35,6 +35,8 @@ cm_interface/
 │  ├─ clock_checks.py     # cm-clock-checks: read-only Si5395/Si5341 status checks
 │  ├─ clock_dump.py       # cm-clock-dump: clock register dump (--out-dir)
 │  ├─ exercise_mcu.py     # cm-exercise-mcu: exercise the MCU pages; writes/control prompt unless --yes
+│  ├─ ff_cdr.py           # cm-ff-cdr: report/enable/disable Firefly CDR per channel
+│  ├─ ff_rx_eq.py         # cm-ff-rx-eq: report/set Firefly Rx amplitude and pre-emphasis per channel
 │  ├─ ff_status.py        # cm-ff-status: Firefly status summary (--out-dir)
 │  ├─ lga80d_checks.py    # cm-lga80d-checks: read-only LGA80D frequency/temperature/timing checks
 │  ├─ lga80d_dump.py      # cm-lga80d-dump: LGA80D register dump (--snapshot adds the SNAPSHOT read)
@@ -73,7 +75,147 @@ register JSON maps. Install a downloaded binary RPM with
 The RPM also installs the command-line tools as `cm-<name>` (for example
 `cm-lga80d-dump --all`). The same tool runs from a checkout as
 `./tools/lga80d_dump.py --all`; the `cm-*` names exist only after the RPM is
-installed.
+installed. See [Command-line tools](#command-line-tools) for each tool's usage.
+
+## Command-line tools
+
+The RPM installs these as `cm-<name>` in `/usr/bin`. Every tool has `--help`
+with the full details (register addresses, datasheet tables, caveats).
+
+### Common options
+
+| Option | Meaning |
+|---|---|
+| `NAME ...` / `--all` | Devices to work on. Give names together, not split around options (`cm-ff-status F1_1 F2_6 --out-dir d`, not `cm-ff-status F1_1 --out-dir d F2_6`). Dumps and Firefly tools need one or the other; checks default to all. |
+| `--out-dir DIR` | Dumps only: write `DIR/cm<boardid>_<name>.txt` instead of printing; stdout then shows only the `wrote` lines. Existing files are overwritten. |
+| `--force` | Clock and Firefly tools only: run even if the MCU power state machine is not `POWER_ON` (see below). |
+| `--dev-path DEV` | ProgCom UART (default `/dev/ttyUL4`). |
+| `--debug` | Print every UART transaction. |
+
+**Power gate.** The clock and Firefly tools (`cm-clock-checks`,
+`cm-clock-dump`, `cm-ff-status`, `cm-ff-cdr`, `cm-ff-rx-eq`) read the MCU
+power state first. If it is not `POWER_ON` they print
+`power is off: ... nothing read` and exit 1; `--force` reads anyway. If the
+state can't be read (old firmware) they run. `cm-clock-dump`, `cm-ff-status`
+and `cm-lga80d-dump` record the power state, with any latched fault flags, in
+their header. The LGA80D tools are not gated:
+the modules answer PMBus with the board off.
+
+The dump, check and Firefly tools exit 1 if any read or write failed, or a
+check failed.
+
+### Clocks
+
+| Command | What it does |
+|---|---|
+| `cm-clock-checks` | Read-only Si5395/Si5341 checks: `id`, `status` (live LOS/OOF/LOL/holdover), `flags` (sticky). Alarms the configuration explains (disabled input, free run) are shown but don't fail. Ends with a clock x check OK/FAIL table. |
+| `cm-clock-dump` | Read-only summary dump per clock: status, outputs with R dividers, P/M/N dividers and derived frequencies. |
+
+```
+cm-clock-checks                          # all checks, all clocks
+cm-clock-checks R0A R1B --check flags
+cm-clock-dump --all --out-dir DIR
+cm-clock-dump R0A --hw-rev 2             # board EEPROM not programmed
+```
+
+Clock names: `R0A R0B R1A R1B R1C`. The chip at each position comes from the
+board revision the MCU reports; `--hw-rev N` overrides it.
+
+### Fireflies
+
+Firefly locations are `F1_1` ... `F2_7`; which exist depends on the board
+revision. A location selects both halves (Tx and Rx) of an x12 pair. Which
+modules are fitted comes from the MCU's present mask, so `--all` means every
+populated module on this board. A module not in the MCU's user mask is listed
+but not accessed.
+
+| Command | What it does |
+|---|---|
+| `cm-ff-status` | Read-only status per module: part, serial, temperature, Vcc, decoded alarm latches (LOS, faults, CDR loss of lock, Rx power). |
+| `cm-ff-cdr` | Report or change CDR enable per channel. **Writes** with `--enable`/`--disable`. |
+| `cm-ff-rx-eq` | Report or change Rx output amplitude and pre-emphasis per channel. **Writes** with `--amplitude`/`--preemphasis`. |
+
+```
+cm-ff-status --all
+cm-ff-status F1_1 F2_6 --out-dir DIR
+
+cm-ff-cdr --all                                      # report
+cm-ff-cdr F1_1 --side rx --disable --channels 3,10
+cm-ff-cdr F2_6 --side tx --enable --channels 2
+cm-ff-cdr F1_1 F1_2 --enable                         # all channels, both sides
+
+cm-ff-rx-eq --all                                    # report
+cm-ff-rx-eq F1_1 --amplitude 5 --channels 1,3,5-8
+cm-ff-rx-eq F1_1 --preemphasis 3 --channels 12
+cm-ff-rx-eq F2_6 --preemphasis 3                     # all 4 channels of an x4
+```
+
+Per-channel changes:
+
+- `--channels` takes a comma list with ranges (`1,3,5-8`); without it the
+  change goes to every channel. It only applies together with a change
+  option; a report always shows every channel.
+- Channels are 1-based: 1-12 on x12, 1-4 on x4. The x12 datasheet's Rx00-Rx11
+  are channels 1-12.
+- One run sets one value. For different values on different channels, run
+  once per value.
+- `--side tx|rx` (`cm-ff-cdr`) limits the change and report to one side.
+- Each changed module is read back and the read-back is printed.
+
+Values are the raw 4-bit codes; the report shows what each means.
+
+| | x12 (25G Rx) | x4 |
+|---|---|---|
+| Amplitude | 0-15: 80 mV + 76 mV/step, 7-15 = 612 mV (default 4 = 384 mV) | 0-3: 300, 450, 600, 900 mV (default 0) |
+| Pre-emphasis | 0-15: 4.8 % of amplitude per step, 7-15 = 33.6 % (default 2 = 9.6 %) | 0-7: 0-6 dB, 7 = 7.5 dB (default 0) |
+
+Caveats: the x4 datasheet calls the amplitude a global parameter for the four
+channels, so a per-channel amplitude may not take effect independently.
+CERN-B and 14G x12 modules are skipped by `cm-ff-cdr` and `cm-ff-rx-eq`.
+If one module fails (for example `--channels 10` on an x4), the others are
+still changed and the exit status is 1.
+
+### LGA80D DC-DC converters
+
+Supply names: `3V3/1V8 F1VCCINT1 F1VCCINT2 F2VCCINT1 F2VCCINT2 F1AVTT/CC F2AVTT/CC`.
+
+| Command | What it does |
+|---|---|
+| `cm-lga80d-status` | Read-only decoded PMBus status registers (STATUS_WORD, VOUT/IOUT/INPUT/TEMP/CML/MFR). |
+| `cm-lga80d-dump` | Read-only dump of every readable PMBus register, both output pages. `--snapshot` also captures the 32-byte SNAPSHOT through the MCU (not a pure read; needs firmware with the SN device). |
+| `cm-lga80d-checks` | Read-only checks: `freq` (did LGA80D_init take effect; run powered on), `temp` (die vs DrMOS temperature; run under load), `timing` (turn-on/off settings vs the firmware's PG check). |
+
+```
+cm-lga80d-status --all
+cm-lga80d-dump F1VCCINT1 --page 0
+cm-lga80d-dump --all --out-dir DIR
+cm-lga80d-dump F1VCCINT1 --snapshot
+cm-lga80d-checks --check freq
+cm-lga80d-checks F1VCCINT2 --check temp
+```
+
+`cm-lga80d-dump --include-unconfirmed` also reads registers the datasheet
+doesn't list as supported; that can set the "invalid command" bit in
+STATUS_CML.
+
+### MCU
+
+| Command | What it does |
+|---|---|
+| `cm-mcu-dump` | Read-only dump of the MCU's ProgCom pages (System, Power, Alarm, Config, Runtime, ADC). Uptime, RTC, heap/stack and ADC values change on every read. |
+| `cm-mcu-set-rtc` | Set the MCU RTC to this host's local time, then read it back. **Writes.** Check the host clock first. |
+| `cm-exercise-mcu` | Read every MCU page and report each independently. With an option it **writes** and asks for confirmation (`--yes` skips it). |
+
+```
+cm-mcu-dump --out-dir DIR
+cm-mcu-set-rtc --dry-run                 # show what would be written
+cm-mcu-set-rtc
+cm-exercise-mcu
+cm-exercise-mcu --send-control CLEAR_ALARM_LATCHES
+cm-exercise-mcu --power-cycle            # power inhibit for 15 s
+cm-exercise-mcu --set-alarm-temp FPGA 85 # persists to EEPROM; 50-100 C
+cm-exercise-mcu --set-volt-threshold 5   # persists to EEPROM; 1-10 %
+```
 
 ## Basic usage
 ```python

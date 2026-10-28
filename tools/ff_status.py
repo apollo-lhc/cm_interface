@@ -32,9 +32,9 @@ if not __package__:
         sys.path.insert(0, _package_parent)
 
 from cm_interface.device.firefly import Firefly4, FireflyReg, FireflyRx, FireflyTx
-from cm_interface.tools._common import (add_common_args, add_device_args, add_out_dir_arg,
-                                       make_registry, out_path, power_is_on, selected_devices,
-                                       write_lines)
+from cm_interface.tools._common import (add_common_args, add_device_args, add_force_arg,
+                                       add_out_dir_arg, make_registry, out_path, power_info,
+                                       power_is_on, selected_devices, write_lines)
 
 # Firmware ff_moni2c_addrs[] (cm_mcu LocalTasks.c) by board revision; the
 # device number is the index. Kind: "Tx"/"Rx" = x12 half, "4" = x4 XCVR.
@@ -78,6 +78,45 @@ def select_slots(slots, populated, wanted, hw_rev):
         elif not any(location(slots[n][0]) == loc for n in populated):
             notes.append("%s: not populated" % loc)
     return notes, [n for n in populated if location(slots[n][0]) in wanted]
+
+
+def find_modules(reg, wanted):
+    """Return (system info, note lines, [(slot number, slot name, kind, device)])
+    for the populated modules at the wanted locations (None = all of this
+    board revision's slots). Modules not in the MCU user mask get a note
+    instead of a device. Raises ValueError if the MCU can't say what is
+    fitted."""
+    info = reg.mcu.system_info
+    if info.ff_present_mask is None:
+        raise ValueError("MCU map minor %d has no Firefly masks (needs >= 1)"
+                         % info.map_minor)
+    slots = SLOTS.get(info.hardware_revision)
+    if slots is None:
+        raise ValueError("no Firefly slot table for board revision %d"
+                         % info.hardware_revision)
+    populated = [n for n in range(len(slots)) if info.ff_present_mask & (1 << n)]
+    notes, to_read = select_slots(slots, populated, wanted, info.hardware_revision)
+    modules = []
+    for n in to_read:
+        name, kind = slots[n]
+        if not info.ff_user_mask & (1 << n):
+            notes.append("%s: present but not in user mask; MCU will not access it" % name)
+            continue
+        modules.append((n, name, kind, CLASSES[kind](reg.uart, address=0x20 + n,
+                                                     location=location(name))))
+    return info, notes, modules
+
+
+def parse_channels(text):
+    """'1,3,5-8' -> [1, 3, 5, 6, 7, 8]; for argparse type=."""
+    channels = []
+    try:
+        for part in text.split(","):
+            first, _, last = part.partition("-")
+            channels += range(int(first), int(last or first) + 1)
+    except ValueError:
+        raise argparse.ArgumentTypeError("bad channel list %r (e.g. 1,3,5-8)" % text)
+    return sorted(set(channels))
 
 
 # x12 status summary byte 6 (Tables 12/34; CERN-B Tables 24/39). Bit 0
@@ -205,6 +244,7 @@ def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     add_device_args(parser, "Firefly location", LOCATIONS)
     add_out_dir_arg(parser, "cm<boardid>_ff_status.txt")
+    add_force_arg(parser)
     add_common_args(parser)
     args = parser.parse_args()
     wanted = selected_devices(parser, args, LOCATIONS)
@@ -212,7 +252,8 @@ def main():
         wanted = None  # this board revision's slots, not every revision's
 
     reg = make_registry(args)
-    if not power_is_on(reg):
+    power_text, power_state = power_info(reg)
+    if not power_is_on(power_state, args.force):
         return 1
     info = reg.mcu.system_info
     if info.ff_present_mask is None:
@@ -229,6 +270,7 @@ def main():
         "Firefly status  %s" % time.strftime("%Y-%m-%d %H:%M:%S"),
         "board %d  rev %d  fw %s" % (info.board_id, info.hardware_revision,
                                      info.git_version),
+        "power %s" % power_text,
         "present mask 0x%05X  user mask 0x%05X  populated %d of %d"
         % (present, user, len(populated), len(slots)),
     ]

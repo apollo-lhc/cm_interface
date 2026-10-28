@@ -48,7 +48,7 @@ from cm_interface.device.lga80d import LGA80D
 from cm_interface.device.mcu import PowerFsmState
 from cm_interface.errors import CMError
 from cm_interface.tools._common import (add_common_args, add_device_args, make_registry,
-                                       print_summary, selected_devices)
+                                       power_info, print_summary, selected_devices)
 from cm_interface.utils import decode_linear11, decode_linear16u
 
 EXPECTED_ERRORS = (CMError, OSError, TimeoutError, ValueError, RuntimeError)
@@ -150,16 +150,6 @@ def _near(value, target, tol):
 
 def _onoff(enabled):
     return "/".join("on" if e else "off" for e in enabled)
-
-
-def read_power_state(reg):
-    try:
-        state = reg.get_mcu().read_power().fsm_state
-        print("MCU power state: %s" % state.name)
-        return state
-    except EXPECTED_ERRORS as exc:
-        print("MCU power state: unknown (%s)" % _format_error(exc))
-        return None
 
 
 def check_freq(reg, names, power_state):
@@ -361,7 +351,8 @@ def main():
     names = selected_devices(parser, args, list(CORE_CONFIG.lga80d), default_all=True)
     reg = make_registry(args)
 
-    power_state = read_power_state(reg)
+    power_text, power_state = power_info(reg)
+    print("MCU power state: %s" % power_text)
     results = {name: {} for name in names}
     for check in checks:
         if check == "freq":

@@ -55,8 +55,8 @@
       "VCC3V3_ALARM_THRESH_HI": {"addr": "0x90", "size": 2, "access": "RW (see note above)", "description": "Bytes 144-145, 100 µV units, default 0x875A = 3.465V."},
       "VCC3V3_ALARM_THRESH_LO": {"addr": "0x92", "size": 2, "access": "RW (see note above)", "description": "Bytes 146-147, 100 µV units, default 0x7A76 = 3.135V."},
       "TX_POLARITY_INV": {"addr": "0xE2", "size": 1, "access": "RW", "description": "Byte 226, per-channel TX/RX polarity invert (packed fields), Table 46."},
-      "RX_OUTPUT_PREEMPHASIS": {"addr": "0xEC", "size": 2, "access": "RW", "description": "Bytes 236-237, Table 48."},
-      "RX_OUTPUT_AMP": {"addr": "0xEE", "size": 2, "access": "RW", "description": "Bytes 238-239, Table 49 (packed fields; manufacturer text notes amplitude is not fully independent per channel)."},
+      "RX_OUTPUT_PREEMPHASIS": {"addr": "0xEC", "size": 2, "access": "RW", "description": "Upper page 03h, bytes 236-237, Table 48. First byte high nibble = Rx1, second byte low nibble = Rx4."},
+      "RX_OUTPUT_AMP": {"addr": "0xEE", "size": 2, "access": "RW", "description": "Upper page 03h, bytes 238-239, Table 49, same nibble order as RX_OUTPUT_PREEMPHASIS (packed fields; manufacturer text notes amplitude is not fully independent per channel)."},
       "SQUELCH_DISABLE": {"addr": "0xF0", "size": 1, "access": "RW", "description": "Byte 240, Table 50."},
       "RX_OUTPUT_DISABLE": {"addr": "0xF1", "size": 1, "access": "RW", "description": "Byte 241, per-channel electrical RX output disable, Table 51. There is no corresponding RX channel-disable control on this variant (see lower_page_registers.RX_DISABLE)."}
     },
