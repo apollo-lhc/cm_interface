@@ -9,6 +9,7 @@ without it, everything is printed. Checks end with print_summary().
 import os
 import sys
 
+from cm_interface import __version__
 from cm_interface.device.mcu import PowerFlags, PowerFsmState
 from cm_interface.registry import Registry
 
@@ -20,6 +21,8 @@ def add_common_args(parser):
                         help="UART device (default: %(default)s)")
     parser.add_argument("--debug", action="store_true",
                         help="log every UART transaction to stdout")
+    parser.add_argument("--version", action="version",
+                        version="%(prog)s (cm_interface) " + __version__)
 
 
 def make_registry(args, **kwargs):
@@ -77,15 +80,18 @@ def write_lines(path, lines, failed=False):
 
 def board_info(reg):
     """Return (board header lines, board id or None). Never fatal: old firmware
-    or a missing MCU capability just yields 'unavailable'."""
+    or a missing MCU capability just yields 'unavailable'. The last line is
+    this package's version, so a dump records what wrote it."""
+    tool_line = "  tools:     cm_interface %s" % __version__
     try:
         info = reg.get_mcu().system_info
     except Exception as exc:
-        return ["  board id:  unavailable (%s)" % exc], None
+        return ["  board id:  unavailable (%s)" % exc, tool_line], None
     return [
         "  board id:  %d" % info.board_id,
         "  hw rev:    %d" % info.hardware_revision,
         "  firmware:  %s" % info.git_version,
+        tool_line,
     ], info.board_id
 
 

@@ -31,6 +31,7 @@ if not __package__:
     if _package_parent not in sys.path:
         sys.path.insert(0, _package_parent)
 
+from cm_interface import __version__
 from cm_interface.device.firefly import Firefly4, FireflyReg, FireflyRx, FireflyTx
 from cm_interface.tools._common import (add_common_args, add_device_args, add_force_arg,
                                        add_out_dir_arg, make_registry, out_path, power_info,
@@ -268,8 +269,8 @@ def main():
     populated = [n for n in range(len(slots)) if present & (1 << n)]
     lines = [
         "Firefly status  %s" % time.strftime("%Y-%m-%d %H:%M:%S"),
-        "board %d  rev %d  fw %s" % (info.board_id, info.hardware_revision,
-                                     info.git_version),
+        "board %d  rev %d  fw %s  cm_interface %s" % (
+            info.board_id, info.hardware_revision, info.git_version, __version__),
         "power %s" % power_text,
         "present mask 0x%05X  user mask 0x%05X  populated %d of %d"
         % (present, user, len(populated), len(slots)),

@@ -91,5 +91,23 @@ class SummaryTest(unittest.TestCase):
         self.assertFalse(ok)
 
 
+class VersionTest(unittest.TestCase):
+    def test_version_option(self):
+        parser = argparse.ArgumentParser(prog="cm-x")
+        _common.add_common_args(parser)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), self.assertRaises(SystemExit):
+            parser.parse_args(["--version"])
+        self.assertEqual(out.getvalue(), "cm-x (cm_interface) %s\n" % _common.__version__)
+
+    def test_board_info_records_version_even_without_mcu(self):
+        class NoMcu:
+            def get_mcu(self):
+                raise OSError("no port")
+        lines, board_id = _common.board_info(NoMcu())
+        self.assertIsNone(board_id)
+        self.assertEqual(lines[-1], "  tools:     cm_interface %s" % _common.__version__)
+
+
 if __name__ == "__main__":
     unittest.main()

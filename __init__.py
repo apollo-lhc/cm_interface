@@ -1,3 +1,4 @@
+from ._version import __version__
 from .registry import Registry
 from .device.mcu import MCU
 from .device.fpga import FPGA, FPGAProbeResult
@@ -9,4 +10,5 @@ __all__ = [
     "FPGAProbeResult",
     "MCU",
     "Registry",
+    "__version__",
 ]

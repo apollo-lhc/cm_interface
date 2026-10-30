@@ -30,6 +30,9 @@ install -d %{buildroot}%{python3_sitelib}/cm_interface/registers
 install -d %{buildroot}%{python3_sitelib}/cm_interface/tools
 install -d %{buildroot}%{_bindir}
 install -m 0644 *.py %{buildroot}%{python3_sitelib}/cm_interface/
+# Stamp the RPM version into the package (cm_interface.__version__).
+printf '__version__ = "%s"\n' '%{version}' \
+    > %{buildroot}%{python3_sitelib}/cm_interface/_version.py
 install -m 0644 device/*.py %{buildroot}%{python3_sitelib}/cm_interface/device/
 install -m 0644 registers/*.json %{buildroot}%{python3_sitelib}/cm_interface/registers/
 install -m 0644 tools/*.py %{buildroot}%{python3_sitelib}/cm_interface/tools/
