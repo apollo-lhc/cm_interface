@@ -229,7 +229,7 @@ class Registry:
     # ---------------------------------------------------------------------
     # LGA80D snapshot reset
     # ---------------------------------------------------------------------
-    def reset_all_lga80d_snapshots(self, force: bool = False) -> None:
+    def reset_all_lga80d_snapshots(self, force: bool = False, names=None) -> None:
         """Reset the snapshot history registers on every configured LGA80D.
 
         Modeled on the MCU firmware's ``sn_all`` command
@@ -258,6 +258,9 @@ class Registry:
         force : bool, optional
             Required to attempt this at all. Does not bypass the
             power-state check.
+        names : iterable of str, optional
+            Only these supplies (keys of ``lga80d``); default every one.
+            Unknown names raise ``KeyError`` before anything is written.
 
         Raises
         ------
@@ -284,5 +287,7 @@ class Registry:
                 "supply's output is off."
             )
 
-        for lga in self.lga80d.values():
+        targets = (list(self.lga80d.values()) if names is None
+                   else [self.lga80d[name] for name in names])
+        for lga in targets:
             lga.reset_all_snapshots()

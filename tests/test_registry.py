@@ -148,6 +148,22 @@ class ResetAllLga80dSnapshotsTest(unittest.TestCase):
         lga_a.reset_all_snapshots.assert_called_once_with()
         lga_b.reset_all_snapshots.assert_called_once_with()
 
+    def test_names_limit_the_reset(self):
+        registry, (lga_a, lga_b) = self._registry_with_fakes(PowerFsmState.POWER_OFF)
+
+        registry.reset_all_lga80d_snapshots(force=True, names=["B"])
+
+        lga_a.reset_all_snapshots.assert_not_called()
+        lga_b.reset_all_snapshots.assert_called_once_with()
+
+    def test_unknown_name_writes_nothing(self):
+        registry, (lga_a, lga_b) = self._registry_with_fakes(PowerFsmState.POWER_OFF)
+
+        with self.assertRaises(KeyError):
+            registry.reset_all_lga80d_snapshots(force=True, names=["A", "X"])
+
+        lga_a.reset_all_snapshots.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

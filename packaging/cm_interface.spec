@@ -41,8 +41,8 @@ rm %{buildroot}%{python3_sitelib}/cm_interface/tools/vccint_2phase.py
 # Each tool module gets a cm-<name> launcher (underscores become dashes).
 for tool in clock_checks clock_dump ff_cdr ff_rx_eq ff_status \
             is_cm_healthy is_cm_power_on is_fpga_programmed is_rtc_set \
-            lga80d_checks lga80d_dump lga80d_status mcu_control mcu_dump mcu_set_rtc \
-            wait_cm_power_on; do
+            lga80d_checks lga80d_dump lga80d_snapshot_reset lga80d_status \
+            mcu_control mcu_dump mcu_set_rtc wait_cm_power_on; do
     launcher=%{buildroot}%{_bindir}/cm-$(echo "$tool" | tr _ -)
     printf '#!%{__python3}\nimport sys\nfrom cm_interface.tools.%s import main\nsys.exit(main())\n' \
         "$tool" > "$launcher"
