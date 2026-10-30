@@ -150,3 +150,30 @@ def print_summary(names, checks, results):
                                   "OK" if device_ok else "FAIL"))
     print("result: %s" % ("OK" if all_ok else "PROBLEMS FOUND"))
     return all_ok
+
+
+def flag_names(value):
+    """Names of the members set in an IntFlag value, in bit order."""
+    return [m.name for m in type(value) if int(m) and int(value) & int(m) == int(m)]
+
+
+# Exit statuses of the cm-is-* predicate tools.
+YES, NO, UNKNOWN = 0, 1, 2
+
+
+def add_quiet_arg(parser):
+    parser.add_argument("-q", "--quiet", action="store_true",
+                        help="print nothing; use the exit status only")
+
+
+def run_predicate(args, check):
+    """Run check(mcu) -> (status, message) for a cm-is-* tool and return the
+    status. Any failure to reach the MCU is UNKNOWN. The message goes to stdout,
+    or stderr when UNKNOWN, unless --quiet."""
+    try:
+        status, message = check(make_registry(args).get_mcu())
+    except Exception as exc:
+        status, message = UNKNOWN, "unknown: %s" % exc
+    if not args.quiet:
+        print(message, file=sys.stderr if status == UNKNOWN else sys.stdout)
+    return status
