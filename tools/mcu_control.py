@@ -3,7 +3,8 @@
 ProgCom power inhibit, and the alarm thresholds on the Config page.
 
 Every action asks for confirmation (``--yes`` skips it). Config writes persist
-to EEPROM. With no action, prints this help. For reads use ``cm-mcu-dump``;
+to EEPROM. With no action, prints this help and exits 2. Exits 1 if the action
+failed or was aborted. For reads use ``cm-mcu-dump``;
 to set the RTC, ``cm-mcu-set-rtc``.
 
 Usage:
@@ -33,8 +34,8 @@ from cm_interface.device.mcu import (
     AlarmTempDevice,
     McuControlCommand,
 )
-from cm_interface.tools._common import add_common_args, make_registry
-from cm_interface.tools.mcu_dump import EXPECTED_HARDWARE_ERRORS, _format_error, _warn
+from cm_interface.tools._common import (EXPECTED_HARDWARE_ERRORS, add_common_args,
+                                        format_error, make_registry, warn)
 
 # One line per McuControlCommand, for --help (MCU_REGISTER_MAP.md, page 0x7f).
 COMMAND_HELP = {
@@ -53,7 +54,10 @@ COMMAND_HELP = {
 def _commands_epilog():
     width = max(len(c.name) for c in McuControlCommand)
     return "COMMANDs for --send-control:\n" + "\n".join(
-        "  %-*s  %s" % (width, c.name, COMMAND_HELP.get(c, "")) for c in McuControlCommand)
+        "  %-*s  %s" % (width, c.name, COMMAND_HELP[c]) for c in McuControlCommand)
+
+
+# The actions below return True if they failed or were aborted.
 
 
 def send_control(mcu, command_name, assume_yes):
@@ -69,12 +73,14 @@ def send_control(mcu, command_name, assume_yes):
         )
         if reply.strip().lower() != "y":
             print("Aborted.")
-            return
+            return True
     try:
         mcu.send_control(command)
         print(f"Sent {command.name}.")
     except EXPECTED_HARDWARE_ERRORS as exc:
-        _warn(_format_error(exc))
+        warn(format_error(exc))
+        return True
+    return False
 
 
 _CONFIG_WRITE_WARNING = (
@@ -100,26 +106,30 @@ def set_alarm_temp(mcu, device_name, celsius, assume_yes):
     try:
         before = mcu.read_alarm_config()
         if not _confirm_config_write(f"{device.name} alarm threshold = {celsius} C", assume_yes):
-            return
+            return True
         mcu.set_alarm_temperature(device, celsius)
         after = mcu.read_alarm_config()
         field = "alarm_temp_" + device.name.lower()
         print(f"{device.name} threshold: {getattr(before, field)} -> {getattr(after, field)} C")
     except EXPECTED_HARDWARE_ERRORS as exc:
-        _warn(_format_error(exc))
+        warn(format_error(exc))
+        return True
+    return False
 
 
 def set_volt_threshold(mcu, percent, assume_yes):
     try:
         before = mcu.read_alarm_config()
         if not _confirm_config_write(f"voltage threshold = {percent} %", assume_yes):
-            return
+            return True
         mcu.set_alarm_voltage_threshold_percent(percent)
         after = mcu.read_alarm_config()
         print("Voltage threshold: {} -> {} %".format(
             before.alarm_volt_threshold_percent, after.alarm_volt_threshold_percent))
     except EXPECTED_HARDWARE_ERRORS as exc:
-        _warn(_format_error(exc))
+        warn(format_error(exc))
+        return True
+    return False
 
 
 def power_cycle(mcu, assume_yes):
@@ -131,15 +141,17 @@ def power_cycle(mcu, assume_yes):
         )
         if reply.strip().lower() != "y":
             print("Aborted.")
-            return
+            return True
 
+    failed = False
     print("Asserting ProgCom power inhibit.")
     try:
         mcu.send_control(McuControlCommand.ASSERT_PROGCOM_POWER_INHIBIT)
         print("Power inhibited; waiting 15 seconds.")
         time.sleep(15)
     except EXPECTED_HARDWARE_ERRORS as exc:
-        _warn(_format_error(exc))
+        warn(format_error(exc))
+        failed = True
     finally:
         # A timeout may occur after firmware has accepted ASSERT, so always
         # attempt RELEASE after issuing it, including on Ctrl-C during sleep.
@@ -147,7 +159,9 @@ def power_cycle(mcu, assume_yes):
             mcu.send_control(McuControlCommand.RELEASE_PROGCOM_POWER_INHIBIT)
             print("Released ProgCom power inhibit.")
         except EXPECTED_HARDWARE_ERRORS as exc:
-            _warn(f"Could not release ProgCom power inhibit: {_format_error(exc)}")
+            warn(f"Could not release ProgCom power inhibit: {format_error(exc)}")
+            failed = True
+    return failed
 
 
 def main():
@@ -189,17 +203,14 @@ def main():
     mcu = make_registry(args).get_mcu()
 
     if args.send_control:
-        send_control(mcu, args.send_control, args.yes)
-        return
-    if args.power_cycle:
-        power_cycle(mcu, args.yes)
-        return
-    if args.set_alarm_temp:
-        set_alarm_temp(mcu, args.set_alarm_temp[0], args.set_alarm_temp[1], args.yes)
-        return
-    if args.set_volt_threshold is not None:
-        set_volt_threshold(mcu, args.set_volt_threshold, args.yes)
-        return
+        failed = send_control(mcu, args.send_control, args.yes)
+    elif args.power_cycle:
+        failed = power_cycle(mcu, args.yes)
+    elif args.set_alarm_temp:
+        failed = set_alarm_temp(mcu, args.set_alarm_temp[0], args.set_alarm_temp[1], args.yes)
+    else:
+        failed = set_volt_threshold(mcu, args.set_volt_threshold, args.yes)
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

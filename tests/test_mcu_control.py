@@ -21,5 +21,28 @@ class McuControlTest(unittest.TestCase):
         self.assertEqual(set(mcu_control.COMMAND_HELP), set(McuControlCommand))
 
 
+    def test_exit_status(self):
+        class Mcu:
+            def __init__(self, error=None):
+                self.error = error
+
+            def send_control(self, command):
+                if self.error:
+                    raise self.error
+
+        def run(mcu, extra=("--yes",), reply="y"):
+            argv = ["cm-mcu-control", "--send-control", "CLEAR_ALARM_LATCHES"] + list(extra)
+            reg = type("Reg", (), {"get_mcu": lambda self: mcu})()
+            with mock.patch.object(sys, "argv", argv), \
+                    mock.patch.object(mcu_control, "make_registry", lambda args: reg), \
+                    mock.patch("builtins.input", return_value=reply), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                return mcu_control.main()
+
+        self.assertEqual(run(Mcu()), 0)
+        self.assertEqual(run(Mcu(OSError("no ack"))), 1)
+        self.assertEqual(run(Mcu(), extra=(), reply="n"), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

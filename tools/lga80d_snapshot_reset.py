@@ -40,7 +40,9 @@ def reset_snapshots(reg, names):
     for name in names:
         try:
             reg.reset_all_lga80d_snapshots(force=True, names=[name])
-            print("%s: snapshot reset (pages 0, 1)" % name)
+            # An ACK does not prove the erase: the device ignores the reset
+            # while its output is on (firmware LocalTasks.c snapreset()).
+            print("%s: reset written (pages 0, 1)" % name)
         except Exception as exc:  # keep going so one bad device doesn't hide the rest
             print("%s: FAILED: %s" % (name, exc))
             failed = True

@@ -11,6 +11,7 @@ import sys
 
 from cm_interface import __version__
 from cm_interface.device.mcu import FpgaDone, PowerFlags, PowerFsmState
+from cm_interface.errors import CMError
 from cm_interface.registry import Registry
 
 DEFAULT_DEV_PATH = "/dev/ttyUL4"
@@ -206,3 +207,37 @@ def run_predicate(args, check):
     if not args.quiet:
         print(message, file=sys.stderr if status == UNKNOWN else sys.stdout)
     return status
+
+
+# RuntimeError is here on purpose: mcu_dump._run_section is a per-section warning
+# boundary, so a stray RuntimeError from any layer (e.g. a map-version mismatch
+# against old firmware) must degrade to a warning, not skip the later sections.
+EXPECTED_HARDWARE_ERRORS = (CMError, OSError, TimeoutError, ValueError, RuntimeError)
+
+
+def format_error(exc):
+    """Return a compact message that includes useful chained exceptions."""
+    messages = []
+    seen = set()
+    current = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        message = str(current).strip() or type(current).__name__
+        if message not in messages:
+            messages.append(message)
+        current = current.__cause__ or current.__context__
+    return " (caused by: ".join(messages) + ")" * (len(messages) - 1)
+
+
+def warn(message):
+    """Print an indented warning line. The marker falls back to ASCII when
+    stdout can't encode it (e.g. Python 3.6 under a C locale), so reporting a
+    failure never raises UnicodeEncodeError itself."""
+    encoding = getattr(sys.stdout, "encoding", None)
+    marker = "\u26a0"
+    if encoding:
+        try:
+            marker.encode(encoding)
+        except (LookupError, UnicodeEncodeError):
+            marker = "!"
+    print(f"  {marker} {message}")

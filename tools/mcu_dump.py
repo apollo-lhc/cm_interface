@@ -28,30 +28,11 @@ if not __package__:
         sys.path.insert(0, _package_parent)
 
 from cm_interface.device.mcu import describe_reset_cause
-from cm_interface.errors import CMError, McuCapabilityUnavailable
-from cm_interface.tools._common import (add_common_args, add_out_dir_arg, board_info,
+from cm_interface.errors import McuCapabilityUnavailable
+from cm_interface.tools._common import (EXPECTED_HARDWARE_ERRORS, add_common_args,
+                                       add_out_dir_arg, board_info, format_error, warn,
                                        flag_names, fpga_done_text, make_registry, out_path,
                                        state_lines, write_lines)
-
-# RuntimeError is here on purpose: _run_section is a per-section warning
-# boundary, so a stray RuntimeError from any layer (e.g. a map-version mismatch
-# against old firmware) must degrade to a warning, not skip the later sections.
-EXPECTED_HARDWARE_ERRORS = (CMError, OSError, TimeoutError, ValueError, RuntimeError)
-
-
-def _format_error(exc):
-    """Return a compact message that includes useful chained exceptions."""
-    messages = []
-    seen = set()
-    current = exc
-    while current is not None and id(current) not in seen:
-        seen.add(id(current))
-        message = str(current).strip() or type(current).__name__
-        if message not in messages:
-            messages.append(message)
-        current = current.__cause__ or current.__context__
-    return " (caused by: ".join(messages) + ")" * (len(messages) - 1)
-
 
 def _enum(value):
     """NAME (number): unlike repr(), the same on every Python version."""
@@ -68,20 +49,6 @@ def _flags(value, digits=2):
     return f"{', '.join(names) or 'none'} (0x{int(value):0{digits}X})"
 
 
-def _warn(message):
-    """Print an indented warning line. The marker falls back to ASCII when
-    stdout can't encode it (e.g. Python 3.6 under a C locale), so reporting a
-    failure never raises UnicodeEncodeError itself."""
-    encoding = getattr(sys.stdout, "encoding", None)
-    marker = "\u26a0"
-    if encoding:
-        try:
-            marker.encode(encoding)
-        except (LookupError, UnicodeEncodeError):
-            marker = "!"
-    print(f"  {marker} {message}")
-
-
 def _run_section(title, fn):
     """Run one section; return True if it failed (an unadvertised page is not
     a failure)."""
@@ -91,7 +58,7 @@ def _run_section(title, fn):
     except McuCapabilityUnavailable:
         print("  not advertised by firmware")
     except EXPECTED_HARDWARE_ERRORS as exc:
-        _warn(_format_error(exc))
+        warn(format_error(exc))
         return True
     return False
 
@@ -210,7 +177,7 @@ SECTIONS = (
 
 class _CaptureBuffer(io.StringIO):
     """StringIO that reports the real stdout's encoding, so the warning
-    marker _warn picks for the capture also prints to that stdout."""
+    marker warn() picks for the capture also prints to that stdout."""
 
     def __init__(self, encoding):
         super().__init__()

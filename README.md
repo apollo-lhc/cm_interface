@@ -218,7 +218,7 @@ STATUS_CML.
 |---|---|
 | `cm-mcu-dump` | Read-only dump of the MCU's ProgCom pages (System, Power, Alarm, Config, Runtime, ADC). Uptime, RTC, heap/stack and ADC values change on every read. |
 | `cm-mcu-set-rtc` | Set the MCU RTC to this host's local time, then read it back. **Writes.** Check the host clock first. |
-| `cm-mcu-control` | **Writes.** Control-page commands (`--send-control COMMAND`; `--help` lists them), a 15 s power cycle, and the alarm thresholds (persist to EEPROM). Asks for confirmation; `--yes` skips it. With no action it prints help. |
+| `cm-mcu-control` | **Writes.** Control-page commands (`--send-control COMMAND`; `--help` lists them), a 15 s power cycle, and the alarm thresholds (persist to EEPROM). Asks for confirmation; `--yes` skips it. With no action it prints help. Exits 1 if the action failed or was aborted. |
 
 ```
 cm-mcu-dump --out-dir DIR
