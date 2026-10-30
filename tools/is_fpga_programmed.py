@@ -46,8 +46,8 @@ def check(mcu, names=("f1", "f2")):
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("fpga", nargs="?", choices=sorted(FPGAS),
-                        help="FPGA to check (default: both)")
+    parser.add_argument("fpga", nargs="?", type=str.lower, choices=sorted(FPGAS),
+                        help="FPGA to check, any case (default: both)")
     add_quiet_arg(parser)
     add_common_args(parser)
     args = parser.parse_args()
