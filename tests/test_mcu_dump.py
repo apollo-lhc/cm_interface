@@ -117,12 +117,12 @@ class FormatTest(unittest.TestCase):
 
     def test_enum(self):
         from cm_interface.device.mcu import PowerFsmState
-        from cm_interface.tools.exercise_mcu import _enum
+        from cm_interface.tools.mcu_dump import _enum
         self.assertEqual(_enum(PowerFsmState.POWER_ON), "POWER_ON (10)")
 
     def test_flags(self):
         from cm_interface.device.mcu import McuHealth, TemperatureAlarmBit
-        from cm_interface.tools.exercise_mcu import _flags
+        from cm_interface.tools.mcu_dump import _flags
         self.assertEqual(_flags(McuHealth(0)), "none (0x00)")
         self.assertEqual(_flags(McuHealth.POWER_FAULT | McuHealth.ADC_ERROR),
                          "POWER_FAULT, ADC_ERROR (0x09)")
@@ -131,7 +131,7 @@ class FormatTest(unittest.TestCase):
 
     def test_fpga_done(self):
         from cm_interface.device.mcu import FpgaDone
-        from cm_interface.tools.exercise_mcu import _fpga_done
+        from cm_interface.tools.mcu_dump import _fpga_done
         self.assertEqual(_fpga_done(FpgaDone.F1), "F1 done, F2 not done")
 
 

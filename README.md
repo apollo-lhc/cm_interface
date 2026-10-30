@@ -31,18 +31,23 @@ cm_interface/
 │  ├─ mcu.py              # Command-module MCU register interface
 │  └─ fpga.py             # Raw F1/F2 generic register interface
 ├─ tools/                 # Command-line tools: run ./tools/NAME.py from a checkout; the RPM installs cm-<name>
-│  ├─ _common.py          # Shared conventions: NAME.../--all, --out-dir, --dev-path, --debug, check summary
+│  ├─ _common.py          # Shared conventions: NAME.../--all, --out-dir, --dev-path, --debug, --version, check summary, predicate exit codes
 │  ├─ clock_checks.py     # cm-clock-checks: read-only Si5395/Si5341 status checks
 │  ├─ clock_dump.py       # cm-clock-dump: clock register dump (--out-dir)
-│  ├─ exercise_mcu.py     # cm-exercise-mcu: exercise the MCU pages; writes/control prompt unless --yes
 │  ├─ ff_cdr.py           # cm-ff-cdr: report/enable/disable Firefly CDR per channel
 │  ├─ ff_rx_eq.py         # cm-ff-rx-eq: report/set Firefly Rx amplitude and pre-emphasis per channel
 │  ├─ ff_status.py        # cm-ff-status: Firefly status summary (--out-dir)
+│  ├─ is_cm_healthy.py    # cm-is-cm-healthy: exit 0 if the MCU reports no faults or alarms
+│  ├─ is_cm_power_on.py   # cm-is-cm-power-on: exit 0 if the power state machine is POWER_ON
+│  ├─ is_fpga_programmed.py # cm-is-fpga-programmed: exit 0 if F1/F2 DONE is asserted
+│  ├─ is_rtc_set.py       # cm-is-rtc-set: exit 0 if the RTC is valid and close to the host clock
 │  ├─ lga80d_checks.py    # cm-lga80d-checks: read-only LGA80D frequency/temperature/timing checks
 │  ├─ lga80d_dump.py      # cm-lga80d-dump: LGA80D register dump (--snapshot adds the SNAPSHOT read)
 │  ├─ lga80d_status.py    # cm-lga80d-status: decoded LGA80D status registers (--out-dir)
+│  ├─ mcu_control.py      # cm-mcu-control: Control-page commands, power cycle, alarm thresholds; prompts unless --yes
 │  ├─ mcu_dump.py         # cm-mcu-dump: read-only MCU page dump (--out-dir)
 │  ├─ mcu_set_rtc.py      # cm-mcu-set-rtc: set the MCU RTC from the host clock
+│  ├─ wait_cm_power_on.py # cm-wait-cm-power-on: wait until POWER_ON (--timeout)
 │  ├─ vccint_2phase.py    # VCCINT 2-phase experiment (checkout only; not in the RPM)
 │  └─ examples.py         # Worked examples (see EXAMPLES.md; not installed in /usr/bin)
 ├─ tests/                 # FakeUART unit tests; tests/hw/ is the opt-in hardware suite
@@ -63,13 +68,16 @@ The package supports Python 3.6 and newer and has no external dependency beyond
 fallback, so the `dataclasses` backport does not need to be installed on the
 target Zynq system.
 
-The `RPM` GitHub workflow builds an Enterprise Linux 8 package on pushes to
-`main` and when a GitHub release is created. Only release builds upload the
-binary RPM and source RPM as release assets. Use release tags of the form
-`v1.2.3` or `1.2.3`; push builds use version `0.0.0`. Each RPM release number
-includes the workflow run number and commit ID. The binary package is
-`python3-cm-interface`, targets the EL8 system Python 3.6, and includes the
-register JSON maps. Install a downloaded binary RPM with
+The `RPM` GitHub workflow builds an Enterprise Linux 8 package when a GitHub
+release is created and uploads the binary and source RPMs as release assets.
+Use release tags of the form `v1.2.3` or `1.2.3`; the tag is the package
+version. The binary package is `python3-cm-interface`, targets the EL8 system
+Python 3.6, and includes the register JSON maps.
+
+The build writes the version into `cm_interface/_version.py`, so an installed
+package reports it as `cm_interface.__version__`, and every tool reports it with
+`--version` and in its dump header (`tools: cm_interface 1.2.3`). A checkout
+always reports `0.0.0+dev`. Install a downloaded binary RPM with
 `sudo dnf install ./python3-cm-interface-*.noarch.rpm`.
 
 The RPM also installs the command-line tools as `cm-<name>` (for example
@@ -91,6 +99,8 @@ with the full details (register addresses, datasheet tables, caveats).
 | `--force` | Clock and Firefly tools only: run even if the MCU power state machine is not `POWER_ON` (see below). |
 | `--dev-path DEV` | ProgCom UART (default `/dev/ttyUL4`). |
 | `--debug` | Print every UART transaction. |
+| `--version` | Print the cm_interface version and exit. |
+| `-q`, `--quiet` | Shell predicates only: print nothing; use the exit status. |
 
 **Power gate.** The clock and Firefly tools (`cm-clock-checks`,
 `cm-clock-dump`, `cm-ff-status`, `cm-ff-cdr`, `cm-ff-rx-eq`) read the MCU
@@ -204,17 +214,37 @@ STATUS_CML.
 |---|---|
 | `cm-mcu-dump` | Read-only dump of the MCU's ProgCom pages (System, Power, Alarm, Config, Runtime, ADC). Uptime, RTC, heap/stack and ADC values change on every read. |
 | `cm-mcu-set-rtc` | Set the MCU RTC to this host's local time, then read it back. **Writes.** Check the host clock first. |
-| `cm-exercise-mcu` | Read every MCU page and report each independently. With an option it **writes** and asks for confirmation (`--yes` skips it). |
+| `cm-mcu-control` | **Writes.** Control-page commands (`--send-control COMMAND`; `--help` lists them), a 15 s power cycle, and the alarm thresholds (persist to EEPROM). Asks for confirmation; `--yes` skips it. With no action it prints help. |
 
 ```
 cm-mcu-dump --out-dir DIR
 cm-mcu-set-rtc --dry-run                 # show what would be written
 cm-mcu-set-rtc
-cm-exercise-mcu
-cm-exercise-mcu --send-control CLEAR_ALARM_LATCHES
-cm-exercise-mcu --power-cycle            # power inhibit for 15 s
-cm-exercise-mcu --set-alarm-temp FPGA 85 # persists to EEPROM; 50-100 C
-cm-exercise-mcu --set-volt-threshold 5   # persists to EEPROM; 1-10 %
+cm-mcu-control --send-control CLEAR_ALARM_LATCHES
+cm-mcu-control --power-cycle            # power inhibit for 15 s
+cm-mcu-control --set-alarm-temp FPGA 85 # persists to EEPROM; 50-100 C
+cm-mcu-control --set-volt-threshold 5   # persists to EEPROM; 1-10 %
+```
+
+### Shell predicates
+
+For `if` and `&&` in shell scripts. Each exits **0 = yes, 1 = no, 2 = unknown**
+(MCU unreachable, page unreadable, bad arguments), and prints one line such as
+`yes: POWER_ON` unless `-q`. `if` treats unknown like no.
+
+| Command | Yes when |
+|---|---|
+| `cm-is-cm-power-on` | The MCU power state machine is `POWER_ON`. |
+| `cm-wait-cm-power-on` | Waits (`--timeout S`, default 60; `--interval S`, default 1) until `POWER_ON`; read errors while waiting are retried. Exits 2 at once if `--dev-path` does not exist. |
+| `cm-is-fpga-programmed [F1\|F2]` | DONE is asserted on the FPGA(s) named, default both, and power is `POWER_ON`. DONE is active low on the board; the tool handles that. |
+| `cm-is-cm-healthy` | No System health flag, no `POWER_FAULT_LATCH`/`ALARM_SHUTDOWN_LATCH`, power not `POWER_FAILURE`. A device above its temperature threshold counts; the temperature warn latch is only reported. Power off is healthy. |
+| `cm-is-rtc-set` | The RTC is valid and within `--tolerance S` (default 60) of this host's clock. |
+
+```
+cm-wait-cm-power-on --timeout 300 -q && cm-clock-checks
+cm-is-fpga-programmed -q F1 || echo "F1 not programmed"
+cm-is-rtc-set -q || cm-mcu-set-rtc
+cm-is-cm-healthy || cm-mcu-dump --out-dir faults/
 ```
 
 ## Basic usage

@@ -9,7 +9,8 @@ board in front of them confirm that the datasheet-audit bugfixes
 (see `/nfs/cms/hw/wittich/int_test/cm-interface-datasheet-audit.md`) actually
 hold up against real modules.
 
-There is no MCU test here; `cm-exercise-mcu` is the MCU hardware path.
+There is no MCU test here; `cm-mcu-dump` (reads) and `cm-mcu-control` (writes)
+are the MCU hardware paths.
 
 **This suite is never run in CI** and is invisible to a plain
 `pytest cm_interface/tests/` invocation: `tests/hw/conftest.py` uses

@@ -636,17 +636,17 @@ class McuProtocolErrorTest(unittest.TestCase):
         self.assertIsInstance(ctx.exception, McuProtocolError)
 
 
-class ExerciseMcuTest(unittest.TestCase):
+class McuDumpSectionTest(unittest.TestCase):
     def test_run_section_degrades_runtime_error_to_a_warning(self):
-        from cm_interface.tools import exercise_mcu
+        from cm_interface.tools import mcu_dump
 
         def boom():
             raise RuntimeError("MCU map version mismatch")
 
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            exercise_mcu._run_section("System (0x00)", boom)
-            exercise_mcu._run_section("after", lambda: print("still ran"))
+            mcu_dump._run_section("System (0x00)", boom)
+            mcu_dump._run_section("after", lambda: print("still ran"))
 
         self.assertIn("MCU map version mismatch", out.getvalue())
         self.assertIn("still ran", out.getvalue())
