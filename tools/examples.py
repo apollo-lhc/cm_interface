@@ -27,32 +27,16 @@ from cm_interface.registry import Registry
 from cm_interface.device.si5395 import Si5395Reg
 from cm_interface.device.firefly import Firefly12, Firefly4, FireflyTx, FireflyRx
 from cm_interface.errors import CMError
-from cm_interface.tools._common import add_common_args
+from cm_interface.tools._common import add_common_args, format_error
 
 
 EXPECTED_HARDWARE_ERRORS = (CMError, OSError, TimeoutError, ValueError)
 EXPECTED_EXAMPLE_ERRORS = EXPECTED_HARDWARE_ERRORS + (KeyError,)
 
 
-def _format_error(exc):
-    """Return a compact message that includes useful chained exceptions."""
-    messages = []
-    seen = set()
-    current = exc
-
-    while current is not None and id(current) not in seen:
-        seen.add(id(current))
-        message = str(current).strip() or type(current).__name__
-        if message not in messages:
-            messages.append(message)
-        current = current.__cause__ or current.__context__
-
-    return " (caused by: ".join(messages) + ")" * (len(messages) - 1)
-
-
 def _report_error(context, exc):
     """Print an expected hardware error without producing a traceback."""
-    print(f"  ⚠ {context}: {_format_error(exc)}")
+    print(f"  ⚠ {context}: {format_error(exc)}")
 
 
 def _get_configured_firefly(reg, location):
