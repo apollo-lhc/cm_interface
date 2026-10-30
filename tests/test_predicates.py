@@ -9,7 +9,7 @@ from cm_interface.device.mcu import (AlarmReg, McuPage, PowerFlags, PowerFsmStat
 from cm_interface.tools import (is_cm_healthy, is_cm_power_on, is_fpga_programmed,
                                 is_rtc_set, wait_cm_power_on)
 from cm_interface.tools._common import NO, UNKNOWN, YES, run_predicate
-from cm_interface.tests.test_mcu_dump import FailingMCU, MemoryMCU
+from test_mcu_dump import FailingMCU, MemoryMCU
 
 
 def _mcu(state=PowerFsmState.POWER_ON, raw_done=0b11):
