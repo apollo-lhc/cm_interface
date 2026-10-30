@@ -84,8 +84,8 @@ from cm_interface.device.si5341 import Si5341Reg
 from cm_interface.device.si5395 import Si5395Reg
 from cm_interface.errors import ClockIdentityError, CMError
 from cm_interface.tools._common import (add_common_args, add_device_args, add_force_arg,
-                                       make_registry, power_info, power_is_on, print_summary,
-                                       selected_devices)
+                                       format_error, make_registry, power_info, power_is_on,
+                                       print_summary, selected_devices)
 
 EXPECTED_ERRORS = (CMError, OSError, TimeoutError, ValueError, RuntimeError)
 
@@ -98,20 +98,6 @@ IN_EN = 0x0949            # bits 3:0 input buffer enable per input
 
 # ACTIVE_NVM_BANK (0x00E2): Si5395 RM table 16.62; same values in the Si5341 RM.
 NVM_BANKS = {0x03: "no user NVM burn", 0x0F: "1 bank burned", 0x3F: "2 banks burned (last bank used)"}
-
-
-def _format_error(exc):
-    """Return a compact message that includes useful chained exceptions."""
-    messages = []
-    seen = set()
-    current = exc
-    while current is not None and id(current) not in seen:
-        seen.add(id(current))
-        message = str(current).strip() or type(current).__name__
-        if message not in messages:
-            messages.append(message)
-        current = current.__cause__ or current.__context__
-    return " (caused by: ".join(messages) + ")" * (len(messages) - 1)
 
 
 def _u8(clock, reg):
@@ -456,7 +442,7 @@ def check_clock(clock, checks):
         if not check_ready(clock) or not check_identity(clock):
             return results
     except EXPECTED_ERRORS as exc:
-        print("%-4s READ FAILED: %s" % (name, _format_error(exc)))
+        print("%-4s READ FAILED: %s" % (name, format_error(exc)))
         return results
     profile = PROFILES[clock.CHIP]
     mon = None
@@ -464,13 +450,13 @@ def check_clock(clock, checks):
         try:
             mon = profile["monitors"](clock)
         except EXPECTED_ERRORS as exc:
-            print("%-4s config READ FAILED: %s" % (name, _format_error(exc)))
+            print("%-4s config READ FAILED: %s" % (name, format_error(exc)))
             return results
     for check in checks:
         try:
             results[check] = bool(profile[check](clock, mon))
         except EXPECTED_ERRORS as exc:
-            print("%-4s %s READ FAILED: %s" % (name, check, _format_error(exc)))
+            print("%-4s %s READ FAILED: %s" % (name, check, format_error(exc)))
             results[check] = False
     return results
 
@@ -508,7 +494,7 @@ def main():
         clocks = reg.clocks
     except EXPECTED_ERRORS as exc:
         print("cannot determine clock chips: %s (use --hw-rev N to set the board "
-              "revision)" % _format_error(exc))
+              "revision)" % format_error(exc))
         return 1
     print("board revision %d%s: %s" % (
         reg.hw_rev, " (--hw-rev)" if args.hw_rev is not None else " (MCU)",

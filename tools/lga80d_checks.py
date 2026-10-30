@@ -47,8 +47,8 @@ from cm_interface.core_config import CORE_CONFIG
 from cm_interface.device.lga80d import LGA80D
 from cm_interface.device.mcu import PowerFsmState
 from cm_interface.errors import CMError
-from cm_interface.tools._common import (add_common_args, add_device_args, make_registry,
-                                       power_info, print_summary, selected_devices)
+from cm_interface.tools._common import (add_common_args, add_device_args, format_error,
+                                       make_registry, power_info, print_summary, selected_devices)
 from cm_interface.utils import decode_linear11, decode_linear16u
 
 EXPECTED_ERRORS = (CMError, OSError, TimeoutError, ValueError, RuntimeError)
@@ -106,20 +106,6 @@ FW_PG_CHECK_MS = 25.0    # PowerSupplyTask checks PG one 25 ms period after EN
 PRE_RAMP_MS = 2.0        # ~2 ms from enable to the start of the output ramp
 
 
-def _format_error(exc):
-    """Return a compact message that includes useful chained exceptions."""
-    messages = []
-    seen = set()
-    current = exc
-    while current is not None and id(current) not in seen:
-        seen.add(id(current))
-        message = str(current).strip() or type(current).__name__
-        if message not in messages:
-            messages.append(message)
-        current = current.__cause__ or current.__context__
-    return " (caused by: ".join(messages) + ")" * (len(messages) - 1)
-
-
 def _read(lga, command, page, size):
     """One PMBus read of the register's real length, then the inter-command gap."""
     try:
@@ -170,7 +156,7 @@ def check_freq(reg, names, power_state):
             gain = _u8(lga, MULTI_PHASE_RAMP_GAIN)         # global
         except EXPECTED_ERRORS as exc:
             ok[name] = False
-            print("%-10s READ FAILED: %s" % (name, _format_error(exc)))
+            print("%-10s READ FAILED: %s" % (name, format_error(exc)))
             continue
         ok[name] = True
         results[name] = (prog, droop, gain)
@@ -231,7 +217,7 @@ def check_temp(reg, names, power_state):
                 iout = _l11(lga, READ_IOUT, page)
             except EXPECTED_ERRORS as exc:
                 ok[name] = False
-                print("%-10s  %d    READ FAILED: %s" % (name, page, _format_error(exc)))
+                print("%-10s  %d    READ FAILED: %s" % (name, page, format_error(exc)))
                 continue
             t1 = decode_linear11(raw1)
             t3 = decode_linear11(raw3)
@@ -276,7 +262,7 @@ def check_timing(reg, names):
             gain = _u8(lga, MULTI_PHASE_RAMP_GAIN)         # global
         except EXPECTED_ERRORS as exc:
             ok[name] = False
-            print("%-10s READ FAILED: %s" % (name, _format_error(exc)))
+            print("%-10s READ FAILED: %s" % (name, format_error(exc)))
             continue
         for page in PAGES:
             try:
@@ -292,7 +278,7 @@ def check_timing(reg, names):
                 pg_delay = _l11(lga, POWER_GOOD_DELAY, page)
             except EXPECTED_ERRORS as exc:
                 ok[name] = False
-                print("%-10s p%d READ FAILED: %s" % (name, page, _format_error(exc)))
+                print("%-10s p%d READ FAILED: %s" % (name, page, format_error(exc)))
                 continue
 
             phases = (ddc & 0x7) + 1

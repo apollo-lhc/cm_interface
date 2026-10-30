@@ -112,5 +112,46 @@ class DumpMcuTest(unittest.TestCase):
         self.assertEqual(mcu.writes, [])
 
 
+class FormatTest(unittest.TestCase):
+    """Dump lines must not depend on the Python version's enum repr()."""
+
+    def test_enum(self):
+        from cm_interface.device.mcu import PowerFsmState
+        from cm_interface.tools.mcu_dump import _enum
+        self.assertEqual(_enum(PowerFsmState.POWER_ON), "POWER_ON (10)")
+
+    def test_flags(self):
+        from cm_interface.device.mcu import McuHealth, TemperatureAlarmBit
+        from cm_interface.tools.mcu_dump import _flags
+        self.assertEqual(_flags(McuHealth(0)), "none (0x00)")
+        self.assertEqual(_flags(McuHealth.POWER_FAULT | McuHealth.ADC_ERROR),
+                         "POWER_FAULT, ADC_ERROR (0x09)")
+        self.assertEqual(_flags(TemperatureAlarmBit(0x104), 8),
+                         "FPGA, 0x100 (0x00000104)")
+
+    def test_fpga_done(self):
+        from cm_interface.device.mcu import FpgaDone
+        from cm_interface.tools._common import fpga_done_text
+        self.assertEqual(fpga_done_text(FpgaDone.F1), "F1 done, F2 not done")
+
+
+
+class StateLinesTest(unittest.TestCase):
+    def test_power_and_fpga_done(self):
+        from cm_interface.device.mcu import PowerFsmState, PowerReg, RuntimeReg
+        from cm_interface.tools._common import state_lines
+        mcu = MemoryMCU()
+        mcu.put(McuPage.POWER, PowerReg.FSM_STATE, bytes((int(PowerFsmState.POWER_ON),)))
+        mcu.put(McuPage.RUNTIME, RuntimeReg.FPGA_DONE, bytes((0b10,)))  # raw, active low
+        self.assertEqual(state_lines(FakeRegistry(mcu)),
+                         ["  power:     POWER_ON", "  fpga done: F1 done, F2 not done"])
+
+    def test_unreadable_is_not_fatal(self):
+        from cm_interface.tools._common import state_lines
+        lines = state_lines(FakeRegistry(FailingMCU()))
+        self.assertTrue(lines[0].startswith("  power:     unavailable"))
+        self.assertTrue(lines[1].startswith("  fpga done: unavailable"))
+
+
 if __name__ == "__main__":
     unittest.main()

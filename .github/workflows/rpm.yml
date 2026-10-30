@@ -58,6 +58,7 @@ jobs:
               dnf install -y /rpmbuild/RPMS/noarch/*.rpm
               cd /tmp
               python3 -c "from cm_interface import Registry, MCU, FPGA"
+              python3 -c "import cm_interface, sys; v = cm_interface.__version__; sys.exit(None if v == \"$RPM_VERSION\" else \"cm_interface.__version__ is %s, expected $RPM_VERSION\" % v)"
               for launcher in /usr/bin/cm-*; do "$launcher" --help > /dev/null; done
               rpm -ql python3-cm-interface
             '

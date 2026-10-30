@@ -9,7 +9,9 @@ without it, everything is printed. Checks end with print_summary().
 import os
 import sys
 
-from cm_interface.device.mcu import PowerFlags, PowerFsmState
+from cm_interface import __version__
+from cm_interface.device.mcu import FpgaDone, PowerFlags, PowerFsmState
+from cm_interface.errors import CMError
 from cm_interface.registry import Registry
 
 DEFAULT_DEV_PATH = "/dev/ttyUL4"
@@ -20,6 +22,8 @@ def add_common_args(parser):
                         help="UART device (default: %(default)s)")
     parser.add_argument("--debug", action="store_true",
                         help="log every UART transaction to stdout")
+    parser.add_argument("--version", action="version",
+                        version="%(prog)s (cm_interface) " + __version__)
 
 
 def make_registry(args, **kwargs):
@@ -77,15 +81,18 @@ def write_lines(path, lines, failed=False):
 
 def board_info(reg):
     """Return (board header lines, board id or None). Never fatal: old firmware
-    or a missing MCU capability just yields 'unavailable'."""
+    or a missing MCU capability just yields 'unavailable'. The last line is
+    this package's version, so a dump records what wrote it."""
+    tool_line = "  tools:     cm_interface %s" % __version__
     try:
         info = reg.get_mcu().system_info
     except Exception as exc:
-        return ["  board id:  unavailable (%s)" % exc], None
+        return ["  board id:  unavailable (%s)" % exc, tool_line], None
     return [
         "  board id:  %d" % info.board_id,
         "  hw rev:    %d" % info.hardware_revision,
         "  firmware:  %s" % info.git_version,
+        tool_line,
     ], info.board_id
 
 
@@ -108,6 +115,29 @@ def power_info(reg):
     if latched:
         text += "  (latched: %s)" % ", ".join(latched)
     return text, power.fsm_state
+
+
+def fpga_done_text(done):
+    """'F1 done, F2 not done' from an FpgaDone value."""
+    return ", ".join("%s %s" % (m.name, "done" if done & m else "not done")
+                     for m in FpgaDone)
+
+
+def fpga_done_info(reg):
+    """FPGA DONE state for headers. Never fatal, like power_info."""
+    try:
+        return fpga_done_text(reg.get_mcu().read_runtime().fpga_done)
+    except Exception as exc:
+        return "unavailable (%s)" % exc
+
+
+def state_lines(reg, power_text=None):
+    """Header lines with the MCU power state and FPGA DONE. Pass power_text if
+    the caller already has it from power_info()."""
+    if power_text is None:
+        power_text = power_info(reg)[0]
+    return ["  power:     %s" % power_text,
+            "  fpga done: %s" % fpga_done_info(reg)]
 
 
 def power_is_on(state, force=False):
@@ -150,3 +180,64 @@ def print_summary(names, checks, results):
                                   "OK" if device_ok else "FAIL"))
     print("result: %s" % ("OK" if all_ok else "PROBLEMS FOUND"))
     return all_ok
+
+
+def flag_names(value):
+    """Names of the members set in an IntFlag value, in bit order."""
+    return [m.name for m in type(value) if int(m) and int(value) & int(m) == int(m)]
+
+
+# Exit statuses of the cm-is-* predicate tools.
+YES, NO, UNKNOWN = 0, 1, 2
+
+
+def add_quiet_arg(parser):
+    parser.add_argument("-q", "--quiet", action="store_true",
+                        help="print nothing; use the exit status only")
+
+
+def run_predicate(args, check):
+    """Run check(mcu) -> (status, message) for a cm-is-* tool and return the
+    status. Any failure to reach the MCU is UNKNOWN. The message goes to stdout,
+    or stderr when UNKNOWN, unless --quiet."""
+    try:
+        status, message = check(make_registry(args).get_mcu())
+    except Exception as exc:
+        status, message = UNKNOWN, "unknown: %s" % exc
+    if not args.quiet:
+        print(message, file=sys.stderr if status == UNKNOWN else sys.stdout)
+    return status
+
+
+# RuntimeError is here on purpose: mcu_dump._run_section is a per-section warning
+# boundary, so a stray RuntimeError from any layer (e.g. a map-version mismatch
+# against old firmware) must degrade to a warning, not skip the later sections.
+EXPECTED_HARDWARE_ERRORS = (CMError, OSError, TimeoutError, ValueError, RuntimeError)
+
+
+def format_error(exc):
+    """Return a compact message that includes useful chained exceptions."""
+    messages = []
+    seen = set()
+    current = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        message = str(current).strip() or type(current).__name__
+        if message not in messages:
+            messages.append(message)
+        current = current.__cause__ or current.__context__
+    return " (caused by: ".join(messages) + ")" * (len(messages) - 1)
+
+
+def warn(message):
+    """Print an indented warning line. The marker falls back to ASCII when
+    stdout can't encode it (e.g. Python 3.6 under a C locale), so reporting a
+    failure never raises UnicodeEncodeError itself."""
+    encoding = getattr(sys.stdout, "encoding", None)
+    marker = "\u26a0"
+    if encoding:
+        try:
+            marker.encode(encoding)
+        except (LookupError, UnicodeEncodeError):
+            marker = "!"
+    print(f"  {marker} {message}")

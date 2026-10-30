@@ -329,7 +329,7 @@ set word at offset `0x04`.
 | 5 | `ZYNQMON_ENABLE_TRANSMIT` |
 | 6 | `ZYNQMON_DISABLE_TRANSMIT` |
 
-`CLEAR_ALARM_LATCHES` matches the existing CLI's `alarm_ctl clear` exactly:
+`CLEAR_ALARM_LATCHES` matches the existing CLI's `alm clear` (`alarm_ctl()`) exactly:
 it sends the same `ALM_CLEAR_ALL` message to both `tempAlarmTask.xAlmQueue`
 and `voltAlarmTask.xAlmQueue`, accepting the same partial-failure risk the
 CLI already accepts today (two independent sends, no rollback if one
@@ -348,7 +348,7 @@ after one full loop period. Poll it; do not assume it.
 **`ZYNQMON_DISABLE_TRANSMIT` is sticky.** Nothing re-enables transmission: not
 a timeout, not the power FSM, not an alarm. A client that disables telemetry
 and then dies, loses its link, or is killed leaves the blade dark to the Zynq
-until someone reaches the CLI (`zmon enable`) or the board reboots.
+until someone reaches the CLI (`zmon on`) or the board reboots.
 
 Queue sends for every command on this page are non-blocking (`0`-tick
 timeout): a full queue is real backpressure and should surface to the

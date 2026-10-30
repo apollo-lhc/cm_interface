@@ -32,7 +32,7 @@ temporary DEBUG firmware build) and a capture on an absent or NACKing supply. Sn
   pushes Si5395 registers over `w CL` (16-bit `page<<8 | addr`, ProgCom writes the page
   register), so it is unaffected by the EEPROM address width below.
 - Add an MCU hardware test under `tests/hw/` if a repeatable one is wanted
-  (`cm-exercise-mcu` is the only MCU hardware path today).
+  (`cm-mcu-dump` and `cm-mcu-control` are the only MCU hardware paths today).
 
 ## Blocked on firmware or hardware
 

@@ -395,11 +395,11 @@ power-good failure. If the underlying fault remains, the MCU can immediately
 assert the fault again. Keep the power inhibit asserted while investigating a
 fault, and release it only after the cause is resolved.
 
-The same operations are available from the hardware exercise script:
+The same operations are available from the command line:
 
 ```bash
-cm-exercise-mcu --power-cycle --yes
-cm-exercise-mcu --send-control CLEAR_POWER_FAULT
+cm-mcu-control --power-cycle --yes
+cm-mcu-control --send-control CLEAR_POWER_FAULT
 ```
 
 ---
