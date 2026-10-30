@@ -170,7 +170,7 @@ class RuntimeReg(IntEnum):
     SYSTEM_STACK_UNTOUCHED_WORDS = 0x0C   # uint32 words; falling = worse
     SYSTEM_STACK_TOTAL_WORDS = 0x10       # uint32 words
     ZYNQMON_TRANSMIT_ENABLED = 0x14       # uint8 0/1
-    FPGA_DONE = 0x15                      # uint8 bitmap, bit0 = F1, bit1 = F2
+    FPGA_DONE = 0x15                      # uint8 raw pins, active low: bit0 = F1, bit1 = F2
     RTC_DATE = 0x18                       # uint32 packed, see McuRtc
     RTC_TIME = 0x1C                       # uint32 packed, see McuRtc
 
@@ -208,6 +208,8 @@ class McuBuildType(IntEnum):
 
 
 class FpgaDone(IntFlag):
+    """Set = FPGA configured. The wire byte is the raw DONE pins, which are
+    active low; read_runtime() inverts."""
     F1 = 1 << 0
     F2 = 1 << 1
 
@@ -808,7 +810,7 @@ class MCU(Device):
             zynqmon_transmit_enabled=bool(
                 self._read_u8(page, RuntimeReg.ZYNQMON_TRANSMIT_ENABLED)
             ),
-            fpga_done=FpgaDone(self._read_u8(page, RuntimeReg.FPGA_DONE)),
+            fpga_done=FpgaDone(~self._read_u8(page, RuntimeReg.FPGA_DONE) & 0x3),
             rtc=rtc,
         )
 

@@ -295,7 +295,7 @@ class McuRuntimeTest(unittest.TestCase):
         _put_u32(mcu, page, RuntimeReg.SYSTEM_STACK_UNTOUCHED_WORDS, 90)
         _put_u32(mcu, page, RuntimeReg.SYSTEM_STACK_TOTAL_WORDS, 128)
         mcu.put(page, RuntimeReg.ZYNQMON_TRANSMIT_ENABLED, bytes((1,)))
-        mcu.put(page, RuntimeReg.FPGA_DONE, bytes((3,)))
+        mcu.put(page, RuntimeReg.FPGA_DONE, bytes((2,)))  # raw active low: F1 done, F2 not
         return mcu
 
     @staticmethod
@@ -318,7 +318,7 @@ class McuRuntimeTest(unittest.TestCase):
             (20000, 15000, 25600, 90, 128),
         )
         self.assertIs(info.zynqmon_transmit_enabled, True)
-        self.assertEqual(info.fpga_done, FpgaDone.F1 | FpgaDone.F2)
+        self.assertEqual(info.fpga_done, FpgaDone.F1)
 
     def test_runtime_rtc_valid(self):
         mcu = self._runtime_mcu()
