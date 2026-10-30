@@ -38,10 +38,11 @@ from cm_interface.device.mcu import (
     ALARM_VOLT_CPCT_MAX,
     ALARM_VOLT_CPCT_MIN,
     AlarmTempDevice,
+    FpgaDone,
     McuControlCommand,
     describe_reset_cause,
 )
-from cm_interface.tools._common import add_common_args, make_registry
+from cm_interface.tools._common import add_common_args, flag_names, make_registry
 
 
 # RuntimeError is here on purpose: _run_section is a per-section warning
@@ -62,6 +63,26 @@ def _format_error(exc):
             messages.append(message)
         current = current.__cause__ or current.__context__
     return " (caused by: ".join(messages) + ")" * (len(messages) - 1)
+
+
+def _enum(value):
+    """NAME (number): unlike repr(), the same on every Python version."""
+    return f"{value.name} ({int(value)})"
+
+
+def _flags(value, digits=2):
+    """Set member names in bit order, then the raw value: 'A, B (0x03)' or
+    'none (0x00)'. Bits with no member show as one extra hex term."""
+    names = flag_names(value)
+    unknown = int(value) & ~sum(int(m) for m in type(value))
+    if unknown:
+        names.append(f"0x{unknown:X}")
+    return f"{', '.join(names) or 'none'} (0x{int(value):0{digits}X})"
+
+
+def _fpga_done(done):
+    return ", ".join(f"{m.name} {'done' if done & m else 'not done'}"
+                     for m in FpgaDone)
 
 
 def _warn(message):
@@ -97,14 +118,14 @@ def exercise_system(mcu):
         info = mcu.system_info
         print(f"  map version:      {info.map_major}.{info.map_minor}")
         print(f"  hardware rev:     {info.hardware_revision}")
-        print(f"  board id:         0x{info.board_id:08X}")
+        print(f"  board id:         {info.board_id}")
         print(f"  uptime:           {info.uptime_seconds} s")
         print(f"  reset cause:      0x{info.reset_cause:08X}")
         for detail in describe_reset_cause(info.reset_cause):
             print(f"    - {detail}")
-        print(f"  git version:      {info.git_version!r}")
-        print(f"  capabilities:     {info.capabilities!r}")
-        print(f"  health:           {info.health!r}")
+        print(f"  git version:      {info.git_version or '(empty)'}")
+        print(f"  capabilities:     {_flags(info.capabilities, 8)}")
+        print(f"  health:           {_flags(info.health)}")
         if info.ff_user_mask is None:
             for label in ("ff user mask", "ff present mask", "build type",
                           "build time"):
@@ -112,8 +133,8 @@ def exercise_system(mcu):
         else:
             print(f"  ff user mask:     0x{info.ff_user_mask:08X}")
             print(f"  ff present mask:  0x{info.ff_present_mask:08X}")
-            print(f"  build type:       {info.build_type!r}")
-            print(f"  build time:       {info.build_time!r}")
+            print(f"  build type:       {_enum(info.build_type)}")
+            print(f"  build time:       {info.build_time or '(empty)'}")
     return _run_section("System (0x00)", go)
 
 
@@ -136,7 +157,7 @@ def exercise_runtime(mcu):
         print(f"  system stack:        {info.system_stack_untouched_words} of "
               f"{info.system_stack_total_words} words untouched")
         print(f"  zynqmon transmit:    {info.zynqmon_transmit_enabled}")
-        print(f"  fpga done:           {info.fpga_done!r}")
+        print(f"  fpga done:           {_fpga_done(info.fpga_done)}")
         print(f"  rtc:                 {info.rtc.isoformat()}")
     return _run_section("Runtime (0x06)", go)
 
@@ -154,25 +175,25 @@ def exercise_power(mcu):
     def go():
         snapshot = mcu.read_power()
         print(f"  generation:       {snapshot.generation}")
-        print(f"  fsm state:        {snapshot.fsm_state!r}")
-        print(f"  flags:            {snapshot.flags!r}")
+        print(f"  fsm state:        {_enum(snapshot.fsm_state)}")
+        print(f"  flags:            {_flags(snapshot.flags)}")
         print(f"  live PG mask:     0x{snapshot.live_pg_mask:08X}")
         print(f"  expected PG mask: 0x{snapshot.expected_pg_mask:08X}")
         print(f"  ignore mask:      0x{snapshot.software_ignore_mask:08X}")
         print(f"  failed mask:      0x{snapshot.failed_mask:08X}")
         print(f"  supply count:     {snapshot.supply_count}")
-        for i, state in enumerate(snapshot.supply_states):
-            print(f"    supply[{i:2d}] = {state!r}")
+        for i, state in enumerate(snapshot.supply_states[:snapshot.supply_count]):
+            print(f"    supply[{i:2d}] = {_enum(state)}")
     return _run_section("Power (0x01)", go)
 
 
 def exercise_alarm(mcu):
     def go():
         snapshot = mcu.read_alarm()
-        print(f"  temp task state:      {snapshot.temp_task_state!r}")
-        print(f"  voltage task state:   {snapshot.voltage_task_state!r}")
-        print(f"  temp status:          {snapshot.temp_status!r}")
-        print(f"  temp warn latch:      {snapshot.temp_warn_latch!r}")
+        print(f"  temp task state:      {_enum(snapshot.temp_task_state)}")
+        print(f"  voltage task state:   {_enum(snapshot.voltage_task_state)}")
+        print(f"  temp status:          {_flags(snapshot.temp_status, 8)}")
+        print(f"  temp warn latch:      {_flags(snapshot.temp_warn_latch, 8)}")
         print(f"  voltage alarm gen:    0x{snapshot.voltage_alarm_general:02X}")
         print(f"  voltage alarm F1:     0x{snapshot.voltage_alarm_f1:02X}")
         print(f"  voltage alarm F2:     0x{snapshot.voltage_alarm_f2:02X}")
