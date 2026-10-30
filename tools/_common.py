@@ -10,7 +10,7 @@ import os
 import sys
 
 from cm_interface import __version__
-from cm_interface.device.mcu import PowerFlags, PowerFsmState
+from cm_interface.device.mcu import FpgaDone, PowerFlags, PowerFsmState
 from cm_interface.registry import Registry
 
 DEFAULT_DEV_PATH = "/dev/ttyUL4"
@@ -114,6 +114,29 @@ def power_info(reg):
     if latched:
         text += "  (latched: %s)" % ", ".join(latched)
     return text, power.fsm_state
+
+
+def fpga_done_text(done):
+    """'F1 done, F2 not done' from an FpgaDone value."""
+    return ", ".join("%s %s" % (m.name, "done" if done & m else "not done")
+                     for m in FpgaDone)
+
+
+def fpga_done_info(reg):
+    """FPGA DONE state for headers. Never fatal, like power_info."""
+    try:
+        return fpga_done_text(reg.get_mcu().read_runtime().fpga_done)
+    except Exception as exc:
+        return "unavailable (%s)" % exc
+
+
+def state_lines(reg, power_text=None):
+    """Header lines with the MCU power state and FPGA DONE. Pass power_text if
+    the caller already has it from power_info()."""
+    if power_text is None:
+        power_text = power_info(reg)[0]
+    return ["  power:     %s" % power_text,
+            "  fpga done: %s" % fpga_done_info(reg)]
 
 
 def power_is_on(state, force=False):

@@ -131,8 +131,26 @@ class FormatTest(unittest.TestCase):
 
     def test_fpga_done(self):
         from cm_interface.device.mcu import FpgaDone
-        from cm_interface.tools.mcu_dump import _fpga_done
-        self.assertEqual(_fpga_done(FpgaDone.F1), "F1 done, F2 not done")
+        from cm_interface.tools._common import fpga_done_text
+        self.assertEqual(fpga_done_text(FpgaDone.F1), "F1 done, F2 not done")
+
+
+
+class StateLinesTest(unittest.TestCase):
+    def test_power_and_fpga_done(self):
+        from cm_interface.device.mcu import PowerFsmState, PowerReg, RuntimeReg
+        from cm_interface.tools._common import state_lines
+        mcu = MemoryMCU()
+        mcu.put(McuPage.POWER, PowerReg.FSM_STATE, bytes((int(PowerFsmState.POWER_ON),)))
+        mcu.put(McuPage.RUNTIME, RuntimeReg.FPGA_DONE, bytes((0b10,)))  # raw, active low
+        self.assertEqual(state_lines(FakeRegistry(mcu)),
+                         ["  power:     POWER_ON", "  fpga done: F1 done, F2 not done"])
+
+    def test_unreadable_is_not_fatal(self):
+        from cm_interface.tools._common import state_lines
+        lines = state_lines(FakeRegistry(FailingMCU()))
+        self.assertTrue(lines[0].startswith("  power:     unavailable"))
+        self.assertTrue(lines[1].startswith("  fpga done: unavailable"))
 
 
 if __name__ == "__main__":

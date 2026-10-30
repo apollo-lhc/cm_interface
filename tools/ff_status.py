@@ -34,8 +34,8 @@ if not __package__:
 from cm_interface import __version__
 from cm_interface.device.firefly import Firefly4, FireflyReg, FireflyRx, FireflyTx
 from cm_interface.tools._common import (add_common_args, add_device_args, add_force_arg,
-                                       add_out_dir_arg, make_registry, out_path, power_info,
-                                       power_is_on, selected_devices, write_lines)
+                                       add_out_dir_arg, fpga_done_info, make_registry, out_path,
+                                       power_info, power_is_on, selected_devices, write_lines)
 
 # Firmware ff_moni2c_addrs[] (cm_mcu LocalTasks.c) by board revision; the
 # device number is the index. Kind: "Tx"/"Rx" = x12 half, "4" = x4 XCVR.
@@ -272,6 +272,7 @@ def main():
         "board %d  rev %d  fw %s  cm_interface %s" % (
             info.board_id, info.hardware_revision, info.git_version, __version__),
         "power %s" % power_text,
+        "fpga done %s" % fpga_done_info(reg),
         "present mask 0x%05X  user mask 0x%05X  populated %d of %d"
         % (present, user, len(populated), len(slots)),
     ]

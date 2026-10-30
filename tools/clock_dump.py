@@ -51,7 +51,8 @@ from cm_interface.core_config import CORE_CONFIG
 from cm_interface.device.clock import DEVICE_READY_VALUE
 from cm_interface.tools._common import (add_common_args, add_device_args, add_force_arg,
                                        add_out_dir_arg, board_info, make_registry, out_path,
-                                       power_info, power_is_on, selected_devices, write_lines)
+                                       power_info, power_is_on, selected_devices, state_lines,
+                                       write_lines)
 
 MAX_READ_BYTES = 4
 
@@ -513,7 +514,7 @@ def main():
     if not power_is_on(power_state, args.force):
         return 1
     board_lines, board_id = board_info(reg)
-    board_lines = board_lines + ["  power:     %s" % power_text]
+    board_lines = board_lines + state_lines(reg, power_text)
     if args.hw_rev is not None:
         board_lines = board_lines + ["  clocks for hw rev %d (--hw-rev)" % args.hw_rev]
     try:

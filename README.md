@@ -106,9 +106,9 @@ with the full details (register addresses, datasheet tables, caveats).
 `cm-clock-dump`, `cm-ff-status`, `cm-ff-cdr`, `cm-ff-rx-eq`) read the MCU
 power state first. If it is not `POWER_ON` they print
 `power is off: ... nothing read` and exit 1; `--force` reads anyway. If the
-state can't be read (old firmware) they run. `cm-clock-dump`, `cm-ff-status`
-and `cm-lga80d-dump` record the power state, with any latched fault flags, in
-their header. The LGA80D tools are not gated:
+state can't be read (old firmware) they run. Every dump (`cm-clock-dump`, `cm-ff-status`,
+`cm-lga80d-dump`, `cm-lga80d-status`, `cm-mcu-dump`) records the power state,
+with any latched fault flags, and the FPGA DONE state in its header. The LGA80D tools are not gated:
 the modules answer PMBus with the board off.
 
 The dump, check and Firefly tools exit 1 if any read or write failed, or a

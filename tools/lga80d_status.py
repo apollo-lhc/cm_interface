@@ -27,7 +27,7 @@ if not __package__:
 from cm_interface.core_config import CORE_CONFIG
 from cm_interface.tools._common import (add_common_args, add_device_args, add_out_dir_arg,
                                        board_info, make_registry, out_path,
-                                       selected_devices, write_lines)
+                                       selected_devices, state_lines, write_lines)
 
 # bit number -> meaning. Bits missing from a table are "Not Used" in the
 # datasheet; if one is set it is printed as undocumented.
@@ -117,6 +117,7 @@ def main():
 
     reg = make_registry(args)
     board_lines, board_id = board_info(reg)
+    board_lines = board_lines + state_lines(reg)
     if args.out_dir:
         os.makedirs(args.out_dir, exist_ok=True)
     failed = False

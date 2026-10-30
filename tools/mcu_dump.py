@@ -27,10 +27,11 @@ if not __package__:
     if _package_parent not in sys.path:
         sys.path.insert(0, _package_parent)
 
-from cm_interface.device.mcu import FpgaDone, describe_reset_cause
+from cm_interface.device.mcu import describe_reset_cause
 from cm_interface.errors import CMError, McuCapabilityUnavailable
 from cm_interface.tools._common import (add_common_args, add_out_dir_arg, board_info,
-                                       flag_names, make_registry, out_path, write_lines)
+                                       flag_names, fpga_done_text, make_registry, out_path,
+                                       state_lines, write_lines)
 
 # RuntimeError is here on purpose: _run_section is a per-section warning
 # boundary, so a stray RuntimeError from any layer (e.g. a map-version mismatch
@@ -65,11 +66,6 @@ def _flags(value, digits=2):
     if unknown:
         names.append(f"0x{unknown:X}")
     return f"{', '.join(names) or 'none'} (0x{int(value):0{digits}X})"
-
-
-def _fpga_done(done):
-    return ", ".join(f"{m.name} {'done' if done & m else 'not done'}"
-                     for m in FpgaDone)
 
 
 def _warn(message):
@@ -144,7 +140,7 @@ def dump_runtime(mcu):
         print(f"  system stack:        {info.system_stack_untouched_words} of "
               f"{info.system_stack_total_words} words untouched")
         print(f"  zynqmon transmit:    {info.zynqmon_transmit_enabled}")
-        print(f"  fpga done:           {_fpga_done(info.fpga_done)}")
+        print(f"  fpga done:           {fpga_done_text(info.fpga_done)}")
         print(f"  rtc:                 {info.rtc.isoformat()}")
     return _run_section("Runtime (0x06)", go)
 
@@ -257,6 +253,7 @@ def main():
 
     reg = make_registry(args)
     board_lines, board_id = board_info(reg)
+    board_lines = board_lines + state_lines(reg)
     if args.out_dir:
         os.makedirs(args.out_dir, exist_ok=True)
     return 1 if dump_mcu(reg, args, board_lines, board_id) else 0
