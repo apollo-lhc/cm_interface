@@ -16,6 +16,7 @@
     "ELAPSED_TIME": {"addr": "0x13", "size": 2, "access": "RO", "description": "Operating time, 16-bit unsigned (2 hours LSB). Byte 0x26 (previously documented here) is actually Rx3 Measured Optical Power on this variant -- an active mismatch, not just a mislabel."},
     "TEMP_MONITOR": {"addr": "0x16", "size": 1, "access": "RO", "description": "Internal temperature, signed 8-bit (°C), accuracy ±3°C"},
     "VCC_MONITOR": {"addr": "0x1A", "size": 2, "access": "RO", "description": "Supply voltage, 16-bit unsigned (100 µV LSB), range 0-6.55V"},
+    "VCC18_MONITOR": {"addr": "0x1C", "size": 2, "access": "RO", "description": "Vcc1.8 supply voltage, bytes 28-29, 16-bit unsigned (100 µV LSB)."},
     "RX_OPTICAL_POWER": {"addr": "0x22", "size": 8, "access": "RO", "description": "4 channels x 2 bytes, unsigned, 0.1 µW/count, accuracy ±3dB. Bytes 34-41: Rx1=0x22-23, Rx2=0x24-25, Rx3=0x26-27, Rx4=0x28-29."},
     "TX_DISABLE": {"addr": "0x56", "size": 1, "access": "RW", "description": "Per-channel TX disable (bits 0-3 for CH0-CH3), byte 86, Table 35."},
     "CDR_ENABLE": {"addr": "0x62", "size": 1, "access": "RW", "description": "Byte 98, Table 36. Bits 7-4 = Tx4-Tx1 CDR enable, bits 3-0 = Rx4-Rx1 CDR enable. Default 0xFF (all enabled)."},

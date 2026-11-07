@@ -35,6 +35,7 @@ cm_interface/
 │  ├─ clock_checks.py     # cm-clock-checks: read-only Si5395/Si5341 status checks
 │  ├─ clock_dump.py       # cm-clock-dump: clock register dump (--out-dir)
 │  ├─ ff_cdr.py           # cm-ff-cdr: report/enable/disable Firefly CDR per channel
+│  ├─ ff_dump.py          # cm-ff-dump: Firefly raw + decoded register dump (--out-dir)
 │  ├─ ff_rx_eq.py         # cm-ff-rx-eq: report/set Firefly Rx amplitude and pre-emphasis per channel
 │  ├─ ff_status.py        # cm-ff-status: Firefly status summary (--out-dir)
 │  ├─ is_cm_healthy.py    # cm-is-cm-healthy: exit 0 if the MCU reports no faults or alarms
@@ -104,10 +105,10 @@ with the full details (register addresses, datasheet tables, caveats).
 | `-q`, `--quiet` | Shell predicates only: print nothing; use the exit status. |
 
 **Power gate.** The clock and Firefly tools (`cm-clock-checks`,
-`cm-clock-dump`, `cm-ff-status`, `cm-ff-cdr`, `cm-ff-rx-eq`) read the MCU
+`cm-clock-dump`, `cm-ff-status`, `cm-ff-dump`, `cm-ff-cdr`, `cm-ff-rx-eq`) read the MCU
 power state first. If it is not `POWER_ON` they print
 `power is off: ... nothing read` and exit 1; `--force` reads anyway. If the
-state can't be read (old firmware) they run. Every dump (`cm-clock-dump`, `cm-ff-status`,
+state can't be read (old firmware) they run. Every dump (`cm-clock-dump`, `cm-ff-status`, `cm-ff-dump`,
 `cm-lga80d-dump`, `cm-lga80d-status`, `cm-mcu-dump`) records the power state,
 with any latched fault flags, and the FPGA DONE state in its header. The LGA80D tools are not gated:
 the modules answer PMBus with the board off.
@@ -143,12 +144,14 @@ but not accessed.
 | Command | What it does |
 |---|---|
 | `cm-ff-status` | Read-only status per module: part, serial, temperature, Vcc, decoded alarm latches (LOS, faults, CDR loss of lock, Rx power). |
+| `cm-ff-dump` | Read-only dump per module: bytes 0x00-0xFF (lower page and upper page 00h) in hex, then the fields `device/firefly.py` defines, decoded. `--out-dir` writes one file per module. |
 | `cm-ff-cdr` | Report or change CDR enable per channel. **Writes** with `--enable`/`--disable`. |
 | `cm-ff-rx-eq` | Report or change Rx output amplitude and pre-emphasis per channel. **Writes** with `--amplitude`/`--preemphasis`. |
 
 ```
 cm-ff-status --all
 cm-ff-status F1_1 F2_6 --out-dir DIR
+cm-ff-dump --all --out-dir DIR
 
 cm-ff-cdr --all                                      # report
 cm-ff-cdr F1_1 --side rx --disable --channels 3,10
