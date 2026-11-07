@@ -349,6 +349,10 @@ class FireflyRx(_FireflyBase):
         RX_OUTPUT_AMP = 0x3E
         RX_DEEMPHASIS = 0x44
         RX_LOS_MASK = 0x5F
+        # Upper page 01h, packed as page << 8 | address (see Firefly4.Reg):
+        # per-channel RSSI, bytes 206-229 (Table 52), 2 bytes each, big-endian,
+        # 0.1 uW/LSB, DESCENDING channel order: 0xCE-CF = ch 12 .. 0xE4-E5 = ch 1.
+        RX_OPTICAL_POWER = 0x01CE
         # No FIRMWARE_VER/EEPROM_REV here -- reserved for this variant, see
         # VENDOR_NAME_START/EEPROM_REV_START above.
         PAGE_SELECT = 0x7F
@@ -479,7 +483,10 @@ class Firefly4(_FireflyBase):
         CDR_LOL_ALARMS = 0x05    # Latched Tx/Rx CDR LOL (Table 31)
         TEMP_ALARM = 0x06        # Combined temperature warning/alarm byte
         VCC_ALARM = 0x07         # Combined VCC3.3/VCC1.8 warning/alarm byte
+        RX_POWER_ALARMS = 0x09   # Bytes 9-10, latched, 4 bits per channel (Table 34)
         ELAPSED_TIME = 0x13      # 2 bytes
+        VCC18_MONITOR = 0x1C     # Bytes 28-29, 16-bit unsigned, 100 uV
+        RX_OPTICAL_POWER = 0x22  # Bytes 34-41, Rx1..Rx4, 16-bit unsigned, 0.1 uW
         TX_DISABLE = 0x56  # Byte 86
         CDR_ENABLE = 0x62  # Byte 98
         CDR_RATE_SELECT = 0x63  # Byte 99
