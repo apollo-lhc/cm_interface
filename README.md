@@ -52,6 +52,7 @@ cm_interface/
 │  ├─ wait_cm_power_on.py # cm-wait-cm-power-on: wait until POWER_ON (--timeout)
 │  ├─ vccint_2phase.py    # VCCINT 2-phase experiment (checkout only; not in the RPM)
 │  └─ examples.py         # Worked examples (see EXAMPLES.md; not installed in /usr/bin)
+├─ cpp/                   # C++ wrapper embedding this package (see "C++ access")
 ├─ tests/                 # FakeUART unit tests; tests/hw/ is the opt-in hardware suite
 └─ registers/
    ├─ si5395.json         # Si5395 register map (page-based)
@@ -403,6 +404,30 @@ loaded FPGA bitfile must instantiate the generic I2C slave.
 (`../FPGA_GENERIC_INTERFACE_PLAN.md`): bitfile profiles, identity matching,
 named registers, permissions, high-level diagnostics and the VU13P GT-test
 adapter. Until then raw writes have no semantic safety checks.
+
+## Concurrent access
+
+Every register transaction holds an advisory `flock` on the tty
+(`UART.lock()`), so the `cm-*` tools, scripts and embedding C++ programs can
+share `/dev/ttyUL4`. Multi-transaction sequences that must not interleave
+(`Device.update_bits`, `LGA80D.read_snapshot`) hold it across the sequence;
+wrap your own sequences in `with registry.uart.lock():` (reentrant). A client
+waiting longer than `lock_timeout` (default 10 s) gets `UARTLockTimeout`.
+The lock is advisory: minicom, screen or `cat` on the tty are not excluded.
+
+## C++ access
+
+`cpp/` embeds the Python interpreter and calls this package, so the C++ side
+shares its register maps and UART locking. Build with CMake (needs
+`python36-devel` on EL8):
+
+```bash
+cmake -S cpp -B build && cmake --build build
+./build/ff_status_byte F1_2 tf        # raw Firefly status byte
+```
+
+Python exceptions arrive as `cm::Error` (`python_type()` gives the class
+name). Only `firefly_status()` is wrapped so far.
 
 ## Debug Logging
 

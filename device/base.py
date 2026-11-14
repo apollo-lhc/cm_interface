@@ -1,6 +1,13 @@
+import contextlib
 from abc import ABC, abstractmethod
 from ..uart import UART
 from ..errors import RegisterAccessError
+
+@contextlib.contextmanager
+def _no_lock():
+    # contextlib.nullcontext needs Python 3.7.
+    yield
+
 
 class Device(ABC):
     """Abstract base class for all UART‑reachable devices.
@@ -12,6 +19,15 @@ class Device(ABC):
     def __init__(self, uart: UART, address: int):
         self.uart = uart
         self.address = address
+
+    def _locked(self):
+        """Context manager holding the UART lock (see :meth:`UART.lock`).
+
+        A UART stand-in without ``lock`` (test fakes) gets a no-op, so the
+        software suite needs no locking support.
+        """
+        lock = getattr(self.uart, "lock", None)
+        return lock() if lock is not None else _no_lock()
 
     @abstractmethod
     def _encode_command(self, reg: int, write: bool, payload: bytes = b"",
@@ -97,8 +113,9 @@ class Device(ABC):
             )
 
         cmd = self._encode_command(reg, write=False, read_size=size)
-        self.uart.write(cmd)
-        resp = self.uart.readline()
+        with self._locked():
+            self.uart.write(cmd)
+            resp = self.uart.readline()
         try:
             value = self._decode_response(resp)
         except Exception as exc:
@@ -142,10 +159,11 @@ class Device(ABC):
         """Update selected bits of a one-byte register and return the result."""
         if not 0 <= mask <= 0xFF or not 0 <= value <= 0xFF:
             raise ValueError("mask and value must be one-byte integers")
-        current = self.read_reg(reg)[0]
-        updated = (current & ~mask) | (value & mask)
-        if updated != current:
-            self.write_reg(reg, bytes([updated]))
+        with self._locked():
+            current = self.read_reg(reg)[0]
+            updated = (current & ~mask) | (value & mask)
+            if updated != current:
+                self.write_reg(reg, bytes([updated]))
         return updated
 
     def write_reg(self, reg: int, data: bytes) -> None:
@@ -154,8 +172,9 @@ class Device(ABC):
                 f"write of {len(data)} bytes at 0x{reg:04X} crosses a page boundary"
             )
         cmd = self._encode_command(reg, write=True, payload=data)
-        self.uart.write(cmd)
-        resp = self.uart.readline()
+        with self._locked():
+            self.uart.write(cmd)
+            resp = self.uart.readline()
         try:
             self._check_ascii_write_response(resp)
         except Exception as exc:
