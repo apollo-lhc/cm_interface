@@ -187,6 +187,7 @@ class LGA80DReg(IntEnum):
     PAGE         = 0x00
     OPERATION    = 0x01
     ON_OFF_CONFIG = 0x02
+    CLEAR_FAULTS = 0x03
     STATUS_WORD  = 0x79
     STATUS_VOUT  = 0x7A
     STATUS_IOUT  = 0x7B
@@ -350,6 +351,30 @@ class LGA80D(Device):
                 )
             raw.extend(chunk)
         return LGA80DSnapshot.from_bytes(bytes(raw))
+
+    def clear_faults(self) -> None:
+        """Send PMBus CLEAR_FAULTS (03h): a send byte, no data.
+
+        Datasheet (TRN Rev 3.3, CLEAR_FAULTS): global (both pages); clears
+        all fault bits in all status registers and releases SALRT. A fault
+        whose condition persists re-asserts immediately. It does not restart
+        a device that has shut down, and it is one of the commands the
+        datasheet allows while the output is enabled, so there is no power
+        precondition.
+
+        Needs MCU firmware that accepts a ProgCom ``DC`` write with no data
+        (cm_mcu #325); older firmware answers ``e write with no data``,
+        raised here as :class:`RegisterAccessError` saying so.
+        """
+        try:
+            self.write_reg(LGA80DReg.CLEAR_FAULTS, b"")
+        except RegisterAccessError as exc:
+            if "write with no data" in str(exc.__cause__):
+                raise RegisterAccessError(
+                    f"LGA80D {self.supply_name}: MCU firmware rejects a write "
+                    "with no data; CLEAR_FAULTS needs cm_mcu #325 or later"
+                ) from exc
+            raise
 
     def reset_snapshot(self, page: int = 0) -> None:
         """Reset the snapshot history register for one output page.
