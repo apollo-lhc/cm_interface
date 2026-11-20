@@ -272,7 +272,7 @@ def main():
         "board %d  rev %d  fw %s  cm_interface %s" % (
             info.board_id, info.hardware_revision, info.git_version, __version__),
         "power %s" % power_text,
-        "fpga done %s" % fpga_done_info(reg),
+        "fpga done %s" % fpga_done_info(reg, power_state),
         "present mask 0x%05X  user mask 0x%05X  populated %d of %d"
         % (present, user, len(populated), len(slots)),
     ]

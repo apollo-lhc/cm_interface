@@ -146,6 +146,15 @@ class StateLinesTest(unittest.TestCase):
         self.assertEqual(state_lines(FakeRegistry(mcu)),
                          ["  power:     POWER_ON", "  fpga done: F1 done, F2 not done"])
 
+    def test_fpga_done_na_when_power_off(self):
+        from cm_interface.device.mcu import PowerFsmState, PowerReg, RuntimeReg
+        from cm_interface.tools._common import state_lines
+        mcu = MemoryMCU()
+        mcu.put(McuPage.POWER, PowerReg.FSM_STATE, bytes((int(PowerFsmState.POWER_OFF),)))
+        mcu.put(McuPage.RUNTIME, RuntimeReg.FPGA_DONE, bytes((0b00,)))  # pulled low when off
+        self.assertEqual(state_lines(FakeRegistry(mcu)),
+                         ["  power:     POWER_OFF", "  fpga done: n/a (power not on)"])
+
     def test_unreadable_is_not_fatal(self):
         from cm_interface.tools._common import state_lines
         lines = state_lines(FakeRegistry(FailingMCU()))
