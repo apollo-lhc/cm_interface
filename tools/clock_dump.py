@@ -514,7 +514,7 @@ def main():
     if not power_is_on(power_state, args.force):
         return 1
     board_lines, board_id = board_info(reg)
-    board_lines = board_lines + state_lines(reg, power_text)
+    board_lines = board_lines + state_lines(reg, (power_text, power_state))
     if args.hw_rev is not None:
         board_lines = board_lines + ["  clocks for hw rev %d (--hw-rev)" % args.hw_rev]
     try:
