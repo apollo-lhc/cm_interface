@@ -123,21 +123,24 @@ def fpga_done_text(done):
                      for m in FpgaDone)
 
 
-def fpga_done_info(reg):
-    """FPGA DONE state for headers. Never fatal, like power_info."""
+def fpga_done_info(reg, state):
+    """FPGA DONE state for headers. Never fatal, like power_info. DONE is
+    pulled low with the FPGAs unpowered, so "not done" would be meaningless;
+    say n/a unless state (from power_info) is POWER_ON or unknown."""
+    if state is not None and state != PowerFsmState.POWER_ON:
+        return "n/a (power not on)"
     try:
         return fpga_done_text(reg.get_mcu().read_runtime().fpga_done)
     except Exception as exc:
         return "unavailable (%s)" % exc
 
 
-def state_lines(reg, power_text=None):
-    """Header lines with the MCU power state and FPGA DONE. Pass power_text if
-    the caller already has it from power_info()."""
-    if power_text is None:
-        power_text = power_info(reg)[0]
+def state_lines(reg, power=None):
+    """Header lines with the MCU power state and FPGA DONE. Pass power if
+    the caller already has the (text, state) from power_info()."""
+    power_text, power_state = power if power is not None else power_info(reg)
     return ["  power:     %s" % power_text,
-            "  fpga done: %s" % fpga_done_info(reg)]
+            "  fpga done: %s" % fpga_done_info(reg, power_state)]
 
 
 def power_is_on(state, force=False):
