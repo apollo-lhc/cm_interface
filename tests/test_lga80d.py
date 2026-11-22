@@ -62,6 +62,29 @@ class StatusWordDecodeTest(unittest.TestCase):
         self.assertEqual(lga.read_status_word(), 0x1234)
 
 
+class ClearFaultsTest(unittest.TestCase):
+    """CLEAR_FAULTS is a PMBus send byte: a ProgCom DC write with no data."""
+
+    def test_wire_format(self):
+        uart = FakeUART(b"c\n")
+        lga = LGA80D(uart, address=0x41, supply_name="F1VCCINT2")
+        lga.clear_faults()
+        self.assertEqual(uart.writes, [b"w DC 1 0 3\n"])
+
+    def test_old_firmware_is_named(self):
+        uart = FakeUART(b"e write with no data\n")
+        lga = LGA80D(uart, address=0x40, supply_name="F1VCCINT1")
+        with self.assertRaisesRegex(RegisterAccessError, "#325"):
+            lga.clear_faults()
+
+    def test_other_errors_pass_through(self):
+        uart = FakeUART(b"e write failed\n")
+        lga = LGA80D(uart, address=0x40, supply_name="F1VCCINT1")
+        with self.assertRaises(RegisterAccessError) as ctx:
+            lga.clear_faults()
+        self.assertNotIn("#325", str(ctx.exception))
+
+
 class ResetSnapshotTest(unittest.TestCase):
     """Regression tests for the snapshot-reset helper, modeled on the MCU
     firmware's sn_all/snapdump_locked (PowerCommands.c / LocalTasks.c):

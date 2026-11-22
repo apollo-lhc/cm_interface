@@ -10,7 +10,9 @@ can't read over PMBus (DATA_SIZE_ERROR).
 Registers the JSON marks "unconfirmed" are skipped unless
 --include-unconfirmed is given: the datasheet doesn't list them as supported,
 and a read of an unsupported command may set the CML "invalid command" bit in
-STATUS_CML on the device. STATUS_CML is therefore read first.
+STATUS_CML on the device. STATUS_CML is therefore read once before anything
+else and again at its address slot; the early value is printed only if the two
+differ (i.e. the dump itself set a CML bit).
 
 --snapshot also captures and prints the 32-byte SNAPSHOT (0xEA) per page through the
 MCU's ProgCom "SN" device (LGA80D.read_snapshot). That is not a pure read: it makes the
@@ -44,12 +46,11 @@ from cm_interface.tools._common import (add_common_args, add_device_args, add_ou
 from cm_interface.utils import decode_linear11, decode_linear16u
 
 # (name, command, size in bytes, unconfirmed). Mirrors registers/lga80d.json
-# (documentation only, never loaded at runtime); STATUS_CML first, then address
-# order, unconfirmed last.
+# (documentation only, never loaded at runtime); address order, unconfirmed last.
+# STATUS_CML is also read before the loop (see PRE_READ / dump_supply).
 MAX_READ_BYTES = 2
 
 REGISTERS = [
-    ("STATUS_CML", 0x7E, 1, False),
     ("OPERATION", 0x01, 1, False),
     ("ON_OFF_CONFIG", 0x02, 1, False),
     ("VOUT_MODE", 0x20, 1, False),
@@ -86,6 +87,7 @@ REGISTERS = [
     ("STATUS_IOUT", 0x7B, 1, False),
     ("STATUS_INPUT", 0x7C, 1, False),
     ("STATUS_TEMP", 0x7D, 1, False),
+    ("STATUS_CML", 0x7E, 1, False),
     ("STATUS_MFR", 0x80, 1, False),
     ("READ_VIN", 0x88, 2, False),
     ("READ_VOUT", 0x8B, 2, False),
@@ -148,6 +150,11 @@ LINEAR11 = {
 }
 
 
+# Read before any other register, so it shows the device state before the dump
+# touched it.
+PRE_READ = ("STATUS_CML", 0x7E, 1)
+
+
 def load_registers(include_unconfirmed):
     # The MCU firmware's PMBus read path (SMBusMasterByteWordRead) rejects reads
     # of more than 2 bytes with DATA_SIZE_ERROR.
@@ -202,12 +209,29 @@ def dump_supply(reg, device, args, board_lines, board_id, registers, pages, echo
             "  %-28s %-4s  %-10s  %s" % ("REGISTER", "CMD", "RAW", "DECODED"),
             "  %s" % ("-" * 66),
         ]
+        pre_name, pre_cmd, pre_size = PRE_READ
+        try:
+            pre = lga.read_reg(lga._paged_reg(pre_cmd, page), size=pre_size)
+        except Exception as exc:
+            pre = exc
         for name, cmd, size, unconfirmed in registers:
             try:
                 raw = lga.read_reg(lga._paged_reg(cmd, page), size=size)
             except Exception as exc:  # keep going; one bad register shouldn't hide the rest
+                raw = exc
+            if name == pre_name and (isinstance(pre, Exception) or pre != raw):
+                # Only shown when it differs from (or can't be compared with)
+                # the in-place read: the dump itself changed STATUS_CML.
+                label = "%s (pre-dump)" % name
+                if isinstance(pre, Exception):
+                    failed = True
+                    lines.append("  %-28s 0x%02X  READ FAILED: %s" % (label, cmd, pre))
+                else:
+                    lines.append("  %-28s 0x%02X  0x%0*X" % (
+                        label, cmd, size * 2, int.from_bytes(pre, "little")))
+            if isinstance(raw, Exception):
                 failed = True
-                lines.append("  %-28s 0x%02X  READ FAILED: %s" % (name, cmd, exc))
+                lines.append("  %-28s 0x%02X  READ FAILED: %s" % (name, cmd, raw))
                 continue
             value = int.from_bytes(raw, "little")
             lines.append("  %-28s 0x%02X  %-10s  %s%s" % (

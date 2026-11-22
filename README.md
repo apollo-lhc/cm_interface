@@ -43,6 +43,7 @@ cm_interface/
 │  ├─ is_fpga_programmed.py # cm-is-fpga-programmed: exit 0 if F1/F2 DONE is asserted
 │  ├─ is_rtc_set.py       # cm-is-rtc-set: exit 0 if the RTC is valid and close to the host clock
 │  ├─ lga80d_checks.py    # cm-lga80d-checks: read-only LGA80D frequency/temperature/timing checks
+│  ├─ lga80d_clear_faults.py # cm-lga80d-clear-faults: PMBus CLEAR_FAULTS (prompts unless --yes)
 │  ├─ lga80d_dump.py      # cm-lga80d-dump: LGA80D register dump (--snapshot adds the SNAPSHOT read)
 │  ├─ lga80d_snapshot_reset.py # cm-lga80d-snapshot-reset: reset SNAPSHOT history (POWER_OFF only; prompts unless --yes)
 │  ├─ lga80d_status.py    # cm-lga80d-status: decoded LGA80D status registers (--out-dir)
@@ -198,6 +199,7 @@ Supply names: `3V3/1V8 F1VCCINT1 F1VCCINT2 F2VCCINT1 F2VCCINT2 F1AVTT/CC F2AVTT/
 | `cm-lga80d-status` | Read-only decoded PMBus status registers (STATUS_WORD, VOUT/IOUT/INPUT/TEMP/CML/MFR). |
 | `cm-lga80d-dump` | Read-only dump of every readable PMBus register, both output pages. `--snapshot` also captures the 32-byte SNAPSHOT through the MCU (not a pure read; needs firmware with the SN device). |
 | `cm-lga80d-snapshot-reset` | **Writes.** Capture then reset the SNAPSHOT fault history, both pages, like the CLI's `sn_all`. Refuses unless power is `POWER_OFF` (no override); asks for confirmation unless `--yes`. Save the snapshot first with `--snapshot` on the dump. |
+| `cm-lga80d-clear-faults` | **Writes.** Send PMBus `CLEAR_FAULTS` (like the CLI's `psclr`), then print each supply's STATUS_WORD so faults that re-asserted are visible. Any power state; asks for confirmation unless `--yes`. Save the status first with `cm-lga80d-status --out-dir`. Needs MCU firmware cm_mcu #325 or later. |
 | `cm-lga80d-checks` | Read-only checks: `freq` (did LGA80D_init take effect; run powered on), `temp` (die vs DrMOS temperature; run under load), `timing` (turn-on/off settings vs the firmware's PG check). |
 
 ```
@@ -209,6 +211,8 @@ cm-lga80d-checks --check freq
 cm-lga80d-checks F1VCCINT2 --check temp
 cm-lga80d-dump --all --snapshot --out-dir DIR   # save first
 cm-lga80d-snapshot-reset --all
+cm-lga80d-status --all --out-dir DIR   # save first
+cm-lga80d-clear-faults --all
 ```
 
 `cm-lga80d-dump --include-unconfirmed` also reads registers the datasheet
