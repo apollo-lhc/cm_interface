@@ -9,6 +9,10 @@ class UARTError(CMError):
     """Raised when the UART device cannot be opened or a read/write fails."""
     pass
 
+class UARTLockTimeout(UARTError):
+    """Another client held the UART lock for longer than the lock timeout."""
+    pass
+
 class DeviceNotFound(CMError):
     """Raised when a requested device identifier does not exist in the registry."""
     pass

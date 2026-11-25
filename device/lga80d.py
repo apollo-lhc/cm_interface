@@ -316,40 +316,45 @@ class LGA80D(Device):
         Raises :class:`RegisterAccessError` if the capture or any read fails,
         including when another client captures a different supply or page
         between this capture and the reads (the MCU keeps a single capture).
+        The UART lock is held across the sequence, so only a client that does
+        not take the lock can do that.
         """
         if page not in (0, 1):
             raise ValueError("LGA80D page must be 0 or 1")
         dev = self.address - 0x40
 
-        self.uart.write(self._encode_ascii_command(
-            "SN", dev, page << 8, True, bytes([0x01])))
-        try:
-            self._check_ascii_write_response(self.uart.readline())
-        except ValueError as exc:
-            raise RegisterAccessError(
-                f"LGA80D {self.supply_name} snapshot capture failed: {exc}"
-            ) from exc
-
-        raw = bytearray()
-        while len(raw) < SNAPSHOT_BYTES:
-            offset = len(raw)
+        # Hold the port from capture to last read: the MCU keeps one capture,
+        # so another client's capture in between would replace ours.
+        with self._locked():
             self.uart.write(self._encode_ascii_command(
-                "SN", dev, (page << 8) | offset, False,
-                read_size=_SNAPSHOT_READ_BYTES))
+                "SN", dev, page << 8, True, bytes([0x01])))
             try:
-                chunk = self._decode_ascii_response(self.uart.readline())
+                self._check_ascii_write_response(self.uart.readline())
             except ValueError as exc:
                 raise RegisterAccessError(
-                    f"LGA80D {self.supply_name} snapshot read at offset "
-                    f"0x{offset:02X} failed: {exc}"
+                    f"LGA80D {self.supply_name} snapshot capture failed: {exc}"
                 ) from exc
-            if len(chunk) != _SNAPSHOT_READ_BYTES:
-                raise RegisterAccessError(
-                    f"LGA80D {self.supply_name} snapshot read at offset "
-                    f"0x{offset:02X} returned {len(chunk)} bytes; expected "
-                    f"{_SNAPSHOT_READ_BYTES}"
-                )
-            raw.extend(chunk)
+
+            raw = bytearray()
+            while len(raw) < SNAPSHOT_BYTES:
+                offset = len(raw)
+                self.uart.write(self._encode_ascii_command(
+                    "SN", dev, (page << 8) | offset, False,
+                    read_size=_SNAPSHOT_READ_BYTES))
+                try:
+                    chunk = self._decode_ascii_response(self.uart.readline())
+                except ValueError as exc:
+                    raise RegisterAccessError(
+                        f"LGA80D {self.supply_name} snapshot read at offset "
+                        f"0x{offset:02X} failed: {exc}"
+                    ) from exc
+                if len(chunk) != _SNAPSHOT_READ_BYTES:
+                    raise RegisterAccessError(
+                        f"LGA80D {self.supply_name} snapshot read at offset "
+                        f"0x{offset:02X} returned {len(chunk)} bytes; expected "
+                        f"{_SNAPSHOT_READ_BYTES}"
+                    )
+                raw.extend(chunk)
         return LGA80DSnapshot.from_bytes(bytes(raw))
 
     def clear_faults(self) -> None:
