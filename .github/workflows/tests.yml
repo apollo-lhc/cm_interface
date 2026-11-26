@@ -27,3 +27,35 @@ jobs:
       # `python -m` puts the cwd (the parent of cm_interface) on sys.path;
       # bare `pytest` does not, and every test module fails to import.
       - run: python -m pytest cm_interface/tests/
+
+  cpp:
+    runs-on: ubuntu-latest
+    # The EL8 target: the C++ layer embeds the system Python 3.6.
+    container: rockylinux:8
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: cm_interface
+      - run: dnf install -y cmake gcc-c++ make python3-devel python3-pyserial
+      - name: Build (warnings are errors)
+        run: |
+          cmake -S cm_interface/cpp -B build -DCMAKE_CXX_FLAGS=-Werror
+          cmake --build build
+      # No hardware: the port opens lazily, so the first read fails with
+      # SerialException. Getting that back as cm::Error (exit 1) shows the
+      # interpreter starts, imports cm_interface and translates exceptions.
+      - name: Smoke test against a missing tty
+        shell: bash
+        # Not ${{ github.workspace }}: that is the host path, and this step
+        # runs in the container.
+        run: |
+          export PYTHONPATH="$GITHUB_WORKSPACE"
+          check() {  # check EXPECTED_PYTHON_TYPE LOCATION
+            rc=0  # bash runs with -e: catch the expected failure
+            out=$(./build/ff_status_byte "$2" tf /dev/nonexistent 2>&1) || rc=$?
+            echo "$out"
+            [[ $rc -eq 1 && "$out" == "error: $1: "* ]] ||
+              { echo "expected exit 1 with $1, got exit $rc" >&2; exit 1; }
+          }
+          check SerialException F1_2
+          check KeyError NO_SUCH_FIREFLY

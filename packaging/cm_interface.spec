@@ -11,12 +11,30 @@ BuildArch:      noarch
 BuildRequires:  python3-devel
 BuildRequires:  python3-pytest
 BuildRequires:  python3-pyserial
+# Only for building the C++ sources in %check; nothing compiled is packaged.
+BuildRequires:  cmake
+BuildRequires:  gcc-c++
+BuildRequires:  make
 Requires:       python3 >= 3.6
 Requires:       python3-pyserial
 
 %description
 Python library for UART management of command-module clocks, Firefly modules,
 power supplies, MCU registers, and raw FPGA generic interfaces.
+
+%package -n cm-interface-cpp-devel
+Summary:        C++ sources for embedding the cm_interface Python package
+Requires:       python3-cm-interface = %{version}-%{release}
+Requires:       python3-devel
+Requires:       cmake
+Requires:       gcc-c++
+Requires:       make
+
+%description -n cm-interface-cpp-devel
+CMake project, header and sources of the C++ layer that embeds the system
+Python and calls cm_interface, installed under %{_datadir}/cm_interface/cpp
+as a starting point for further C++ bindings. Copy the tree and build it with
+cmake; nothing is precompiled.
 
 %prep
 %setup -q -n cm_interface-%{version}
@@ -48,11 +66,21 @@ for tool in clock_checks clock_dump ff_cdr ff_dump ff_rx_eq ff_status \
         "$tool" > "$launcher"
     chmod 0755 "$launcher"
 done
+install -d %{buildroot}%{_datadir}/cm_interface
+cp -a cpp %{buildroot}%{_datadir}/cm_interface/
 
 %check
 PYTHONPATH=%{buildroot}%{python3_sitelib} %{__python3} -m pytest tests/ --ignore=tests/hw
+# The packaged C++ tree must build as shipped (it is not run here: rpm.yml
+# smoke-tests it after installing both packages).
+cmake -S %{buildroot}%{_datadir}/cm_interface/cpp -B cpp-check-build \
+    -DPython3_EXECUTABLE=%{__python3} -DCMAKE_CXX_FLAGS=-Werror
+cmake --build cpp-check-build
 
 %files
 %doc README.md EXAMPLES.md MCU_REGISTER_MAP.md
 %{python3_sitelib}/cm_interface/
 %{_bindir}/cm-*
+
+%files -n cm-interface-cpp-devel
+%{_datadir}/cm_interface/

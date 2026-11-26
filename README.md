@@ -76,7 +76,8 @@ The `RPM` GitHub workflow builds an Enterprise Linux 8 package when a GitHub
 release is created and uploads the binary and source RPMs as release assets.
 Use release tags of the form `v1.2.3` or `1.2.3`; the tag is the package
 version. The binary package is `python3-cm-interface`, targets the EL8 system
-Python 3.6, and includes the register JSON maps.
+Python 3.6, and includes the register JSON maps. A second noarch package,
+`cm-interface-cpp-devel`, ships the C++ sources (see "C++ access").
 
 The build writes the version into `cm_interface/_version.py`, so an installed
 package reports it as `cm_interface.__version__`, and every tool reports it with
@@ -432,6 +433,19 @@ cmake -S cpp -B build && cmake --build build
 
 Python exceptions arrive as `cm::Error` (`python_type()` gives the class
 name). Only `firefly_status()` is wrapped so far.
+
+On an installed system, `cm-interface-cpp-devel` puts the same tree under
+`/usr/share/cm_interface/cpp` and pulls in the compiler, CMake and
+`python3-devel`. Nothing is precompiled, so it works on any architecture: copy
+the tree, extend it, and build against the installed Python package:
+
+```bash
+cp -r /usr/share/cm_interface/cpp ~/cm_cpp
+cmake -S ~/cm_cpp -B ~/cm_cpp/build && cmake --build ~/cm_cpp/build
+```
+
+CI builds the C++ on Rocky 8 with `-Werror` and checks that a Python error
+(no tty) comes back as `cm::Error`.
 
 ## Debug Logging
 
