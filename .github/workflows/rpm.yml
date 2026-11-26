@@ -50,7 +50,8 @@ jobs:
             -v "$GITHUB_WORKSPACE/build/rpmbuild:/rpmbuild" \
             -e RPM_VERSION -e RPM_RELEASE \
             rockylinux:8 bash -euo pipefail -c '
-              dnf install -y rpm-build python3-devel python3-pytest python3-pyserial
+              dnf install -y rpm-build python3-devel python3-pytest python3-pyserial \
+                cmake gcc-c++ make
               rpmbuild -ba /rpmbuild/SPECS/cm_interface.spec \
                 --define "_topdir /rpmbuild" \
                 --define "package_version $RPM_VERSION" \
@@ -60,7 +61,16 @@ jobs:
               python3 -c "from cm_interface import Registry, MCU, FPGA"
               python3 -c "import cm_interface, sys; v = cm_interface.__version__; sys.exit(None if v == \"$RPM_VERSION\" else \"cm_interface.__version__ is %s, expected $RPM_VERSION\" % v)"
               for launcher in /usr/bin/cm-*; do "$launcher" --help > /dev/null; done
-              rpm -ql python3-cm-interface
+              # The C++ sources build from the installed copy and reach the
+              # installed package; with no tty the first read must come back
+              # as cm::Error SerialException.
+              cp -r /usr/share/cm_interface/cpp /tmp/cpp
+              cmake -S /tmp/cpp -B /tmp/cpp-build
+              cmake --build /tmp/cpp-build
+              out=$(/tmp/cpp-build/ff_status_byte F1_2 tf /dev/nonexistent 2>&1) && rc=0 || rc=$?
+              echo "$out"
+              [[ $rc -eq 1 && "$out" == "error: SerialException: "* ]]
+              rpm -ql python3-cm-interface cm-interface-cpp-devel
             '
 
       - name: Upload RPMs to the new release
