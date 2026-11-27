@@ -272,9 +272,17 @@ def _rx_power(raw):
     """x12 Rx bytes 14-16: 2 bits per channel, byte 16 bits 1-0 = ch 1;
     01 = too low, 10 = too high (as cm-ff-status)."""
     value = get(raw, FireflyRx.Reg.RX_POWER_ALARM, 3)
-    low = [ch + 1 for ch in range(12) if (value >> (2 * ch)) & 0x1]
-    high = [ch + 1 for ch in range(12) if (value >> (2 * ch)) & 0x2]
-    return "0x%06X  low %s; high %s" % (value, channel_text(low), channel_text(high))
+    return "0x%06X  %s" % (value, condition_text([
+        ("low", [ch + 1 for ch in range(12) if (value >> (2 * ch)) & 0x1]),
+        ("high", [ch + 1 for ch in range(12) if (value >> (2 * ch)) & 0x2]),
+    ]))
+
+
+def condition_text(groups):
+    """'low alarm ch 1,2; low warning ch 4' from (condition, channels) pairs,
+    leaving out conditions no channel has; 'none' if none has any."""
+    return "; ".join("%s %s" % (name, channel_text(chs))
+                     for name, chs in groups if chs) or "none"
 
 
 X4_RX_POWER_BITS = ("high alarm", "low alarm", "high warning", "low warning")
@@ -285,12 +293,10 @@ def _x4_rx_power_alarms(raw):
     the same for Rx3/Rx4. Within a channel's nibble, bit 3 down to bit 0 =
     high alarm, low alarm, high warning, low warning."""
     value = get(raw, Firefly4.Reg.RX_POWER_ALARMS, 2)
-    found = []
-    for ch in range(1, 5):
-        nibble = (value >> (16 - 4 * ch)) & 0xF
-        found += ["ch %d %s" % (ch, X4_RX_POWER_BITS[i])
-                  for i in range(4) if nibble & (0x8 >> i)]
-    return "0x%04X  %s" % (value, ", ".join(found) or "none")
+    return "0x%04X  %s" % (value, condition_text([
+        (name, [ch for ch in range(1, 5) if (value >> (16 - 4 * ch)) & (0x8 >> i)])
+        for i, name in enumerate(X4_RX_POWER_BITS)
+    ]))
 
 
 def optical_power_text(counts):
