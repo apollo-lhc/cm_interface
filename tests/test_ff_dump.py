@@ -117,6 +117,20 @@ class DecodeTest(unittest.TestCase):
         self.assertIn("1:7(612 mV)", text)
         self.assertIn("12:4(384 mV)", text)
 
+    def test_x12_rx_power_alarm(self):
+        regs = {}
+        ascii_at(regs, 0xAB, "B0412500021111")
+        regs[0x0E] = 0x80                     # ch 12 too high
+        regs[0x10] = 0x05                     # ch 1, ch 2 too low
+        _, text = self.decode(FireflyRx, "Rx", regs)
+        self.assertRegex(text, r"Rx power alarm\s+0x800005  low ch 1,2; high ch 12\n")
+
+    def test_x12_rx_power_alarm_none(self):
+        regs = {}
+        ascii_at(regs, 0xAB, "B0412500021111")
+        _, text = self.decode(FireflyRx, "Rx", regs)
+        self.assertRegex(text, r"Rx power alarm\s+0x000000  none\n")
+
     def test_cernb_gets_no_control_registers(self):
         regs = {}
         ascii_at(regs, 0xAB, "CERNB-R12")
@@ -147,11 +161,19 @@ class DecodeTest(unittest.TestCase):
         regs[0x22], regs[0x23] = 0x27, 0x10   # Rx1 10000 counts = 1000 uW = 0 dBm
         regs[0x24], regs[0x25] = 0x00, 0x64   # Rx2 100 counts = 10 uW = -20 dBm
         _, text = self.decode(Firefly4, "4", regs)
-        self.assertRegex(text, r"Rx power alarm\s+0x8201  ch 1 high alarm, "
-                               r"ch 2 high warning, ch 4 low warning")
+        self.assertRegex(text, r"Rx power alarm\s+0x8201  high alarm ch 1; "
+                               r"high warning ch 2; low warning ch 4\n")
         self.assertRegex(text, r"Rx1 optical power\s+1000\.0 uW \(0\.00 dBm\)")
         self.assertRegex(text, r"Rx2 optical power\s+10\.0 uW \(-20\.00 dBm\)")
         self.assertRegex(text, r"Rx3 optical power\s+0\.0 uW\n")
+
+    def test_x4_rx_power_alarms_grouped_by_condition(self):
+        regs = {}
+        ascii_at(regs, 0xA8, "B0425040011201")
+        regs[0x09], regs[0x0A] = 0x55, 0x55   # every channel: low alarm + low warning
+        _, text = self.decode(Firefly4, "4", regs)
+        self.assertRegex(text, r"Rx power alarm\s+0x5555  low alarm ch 1,2,3,4; "
+                               r"low warning ch 1,2,3,4\n")
 
     def test_x4_vcc18(self):
         regs = {}
@@ -201,6 +223,44 @@ class RxRssiTest(unittest.TestCase):
                                            cls(uart, address=0x20, location="F1_1"))
             self.assertFalse(any(w.split()[3] == b"1" for w in uart.writes))
             self.assertNotIn("optical power", "\n".join(lines))
+
+
+class MainHeaderTest(unittest.TestCase):
+    """main() must hand state_lines the (text, state) pair from power_info,
+    not just the text (regression: ValueError on unpack under --all)."""
+
+    def test_header_with_power_on(self):
+        import contextlib
+        import io
+        import sys
+        import types
+        from cm_interface.device.mcu import PowerFsmState
+
+        class NoRuntimeMCU:
+            def read_runtime(self):
+                raise IOError("no runtime page")
+
+        reg = types.SimpleNamespace(get_mcu=lambda: NoRuntimeMCU())
+        info = types.SimpleNamespace(ff_present_mask=0, ff_user_mask=0)
+        saved = {name: getattr(ff_dump, name)
+                 for name in ("make_registry", "power_info", "find_modules", "board_info")}
+        ff_dump.make_registry = lambda args: reg
+        ff_dump.power_info = lambda r: ("POWER_ON", PowerFsmState.POWER_ON)
+        ff_dump.find_modules = lambda r, wanted: (info, [], [])
+        ff_dump.board_info = lambda r: (["  board id:  12"], 12)
+        saved_argv, sys.argv = sys.argv, ["cm-ff-dump", "--all"]
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out):
+                rc = ff_dump.main()
+        finally:
+            sys.argv = saved_argv
+            for name, value in saved.items():
+                setattr(ff_dump, name, value)
+
+        self.assertEqual(rc, 0)
+        self.assertIn("  power:     POWER_ON", out.getvalue())
+        self.assertIn("  fpga done: unavailable", out.getvalue())
 
 
 if __name__ == "__main__":

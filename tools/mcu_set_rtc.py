@@ -28,7 +28,8 @@ if not __package__:
 
 from cm_interface.device.mcu import McuCapability, rtc_local_seconds
 from cm_interface.errors import McuCapabilityUnavailable
-from cm_interface.tools._common import add_common_args, make_registry
+from cm_interface.tools._common import (EXPECTED_HARDWARE_ERRORS, add_common_args,
+                                       format_error, make_registry)
 
 
 def rtc_datetime(rtc):
@@ -51,11 +52,16 @@ def main():
     args = parser.parse_args()
 
     mcu = make_registry(args).get_mcu()
-    print("MCU RTC before: %s" % mcu.read_runtime().rtc.isoformat())
+    try:
+        before = mcu.read_runtime().rtc
+        supported = bool(mcu.capabilities() & McuCapability.RTC_WRITE)
+    except EXPECTED_HARDWARE_ERRORS as exc:
+        print("error: cannot read the MCU: %s" % format_error(exc), file=sys.stderr)
+        return 1
+    print("MCU RTC before: %s" % before.isoformat())
 
     now = datetime.datetime.now().replace(microsecond=0)
     if args.dry_run:
-        supported = bool(mcu.capabilities() & McuCapability.RTC_WRITE)
         print("would set:      %s (0x%08x)%s" % (
             now.isoformat(), rtc_local_seconds(now),
             "" if supported else "  -- firmware does not advertise RTC_WRITE"))
