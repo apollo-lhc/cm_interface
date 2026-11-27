@@ -33,8 +33,9 @@ if not __package__:
 
 from cm_interface import __version__
 from cm_interface.device.firefly import Firefly4, FireflyReg, FireflyRx, FireflyTx
-from cm_interface.tools._common import (add_common_args, add_device_args, add_force_arg,
-                                       add_out_dir_arg, fpga_done_info, make_registry, out_path,
+from cm_interface.tools._common import (EXPECTED_HARDWARE_ERRORS, add_common_args,
+                                       add_device_args, add_force_arg, add_out_dir_arg,
+                                       format_error, fpga_done_info, make_registry, out_path,
                                        power_info, power_is_on, selected_devices, write_lines)
 
 # Firmware ff_moni2c_addrs[] (cm_mcu LocalTasks.c) by board revision; the
@@ -81,13 +82,22 @@ def select_slots(slots, populated, wanted, hw_rev):
     return notes, [n for n in populated if location(slots[n][0]) in wanted]
 
 
+def system_info(reg):
+    """The MCU's system info; ValueError if it can't be read (MCU not
+    answering), so callers report it like any other 'can't tell' case."""
+    try:
+        return reg.mcu.system_info
+    except EXPECTED_HARDWARE_ERRORS as exc:
+        raise ValueError("cannot read MCU system info: %s" % format_error(exc)) from exc
+
+
 def find_modules(reg, wanted):
     """Return (system info, note lines, [(slot number, slot name, kind, device)])
     for the populated modules at the wanted locations (None = all of this
     board revision's slots). Modules not in the MCU user mask get a note
     instead of a device. Raises ValueError if the MCU can't say what is
     fitted."""
-    info = reg.mcu.system_info
+    info = system_info(reg)
     if info.ff_present_mask is None:
         raise ValueError("MCU map minor %d has no Firefly masks (needs >= 1)"
                          % info.map_minor)
@@ -256,7 +266,11 @@ def main():
     power_text, power_state = power_info(reg)
     if not power_is_on(power_state, args.force):
         return 1
-    info = reg.mcu.system_info
+    try:
+        info = system_info(reg)
+    except ValueError as exc:
+        print(exc)
+        return 1
     if info.ff_present_mask is None:
         print("MCU map minor %d has no Firefly masks (needs >= 1)" % info.map_minor)
         return 1
