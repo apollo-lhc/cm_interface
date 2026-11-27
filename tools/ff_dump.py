@@ -415,7 +415,7 @@ def main():
     header = [
         "Firefly register dump  %s" % time.strftime("%Y-%m-%d %H:%M:%S"),
         "  uart:      %s" % args.dev_path,
-    ] + board_lines + state_lines(reg, power_text) + [
+    ] + board_lines + state_lines(reg, (power_text, power_state)) + [
         "  ff masks:  present 0x%05X  user 0x%05X" % (info.ff_present_mask, info.ff_user_mask),
     ] + ["  note:      %s" % note for note in notes]
 

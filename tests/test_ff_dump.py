@@ -203,5 +203,43 @@ class RxRssiTest(unittest.TestCase):
             self.assertNotIn("optical power", "\n".join(lines))
 
 
+class MainHeaderTest(unittest.TestCase):
+    """main() must hand state_lines the (text, state) pair from power_info,
+    not just the text (regression: ValueError on unpack under --all)."""
+
+    def test_header_with_power_on(self):
+        import contextlib
+        import io
+        import sys
+        import types
+        from cm_interface.device.mcu import PowerFsmState
+
+        class NoRuntimeMCU:
+            def read_runtime(self):
+                raise IOError("no runtime page")
+
+        reg = types.SimpleNamespace(get_mcu=lambda: NoRuntimeMCU())
+        info = types.SimpleNamespace(ff_present_mask=0, ff_user_mask=0)
+        saved = {name: getattr(ff_dump, name)
+                 for name in ("make_registry", "power_info", "find_modules", "board_info")}
+        ff_dump.make_registry = lambda args: reg
+        ff_dump.power_info = lambda r: ("POWER_ON", PowerFsmState.POWER_ON)
+        ff_dump.find_modules = lambda r, wanted: (info, [], [])
+        ff_dump.board_info = lambda r: (["  board id:  12"], 12)
+        saved_argv, sys.argv = sys.argv, ["cm-ff-dump", "--all"]
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out):
+                rc = ff_dump.main()
+        finally:
+            sys.argv = saved_argv
+            for name, value in saved.items():
+                setattr(ff_dump, name, value)
+
+        self.assertEqual(rc, 0)
+        self.assertIn("  power:     POWER_ON", out.getvalue())
+        self.assertIn("  fpga done: unavailable", out.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
